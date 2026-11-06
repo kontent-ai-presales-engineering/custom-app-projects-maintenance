@@ -2,15 +2,17 @@
 
 A Kontent.ai custom app that keeps the content model of client projects in sync with a master project.
 
-Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects, so this app runs inside the **master** project and pushes model changes **one way**, from master to client environments. It never syncs from a client to the master.
+Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects, so this app runs inside the **master** project, lists every project in the Kontent.ai subscription, and pushes model changes **one way**, from the master to client projects. It never syncs from a client to the master.
 
-> **Status: in development.** This README describes the agreed design for Phase 1 and the roadmap. Each feature below is marked with its status. Until a feature is marked **Available**, it does not exist in the code yet. The repository currently contains the React custom app starter this app is built on.
+> **Status: in development.** This README describes the agreed design for Phase 1 and the roadmap. Each feature below is marked with its status. Until a feature is marked **Available**, it does not exist in the code yet.
 
 ## Contents
 
 - [What it does](#what-it-does)
 - [Safety rules](#safety-rules)
 - [How it works](#how-it-works)
+- [Access control](#access-control)
+- [Management API keys](#management-api-keys)
 - [Client extensions: the reserved prefix](#client-extensions-the-reserved-prefix)
 - [Destructive changes and content impact](#destructive-changes-and-content-impact)
 - [Limitations](#limitations)
@@ -29,21 +31,19 @@ Unity Advisory is moving from one Kontent.ai project with a collection per clien
 
 | Feature | Description | Status |
 |---|---|---|
-| Sign-in | Microsoft Entra ID sign-in (OIDC, MSAL popup). Two roles, each mapped to Entra security groups: **operators** and **admins**. See [Roles](#roles). | Planned |
-| Client registry | Register client projects by picking projects and environments from the Kontent.ai subscription (no manual ID entry). Assign dev and prod stages, notes and per-client sync settings. Flags subscription projects that are unregistered or inactive. | Planned |
-| Secret store | Management API keys, the Delivery API key (optional) and the Subscription API key are stored encrypted (AES-256-GCM). Only admins can set, replace or remove keys, and nobody can read a key back in the UI. | Planned |
-| Key audit log | Every key change is logged: who, when, which key and what action. The key value is never logged. | Planned |
+| Access check | Every API call needs the access secret from the custom app parameters and a Kontent.ai user who is active in the master environment with an allowed role. See [Access control](#access-control). | In progress |
+| Project overview | Lists all projects and environments in the Kontent.ai subscription and shows, per environment, whether a Management API key is configured. For a missing key it shows the exact environment variable to add. | Planned |
 | Diff | Compares the master environment with one client environment. Shows added, changed and removed entities with destructive changes highlighted, plus the full data-ops HTML report as optional detail. | Planned |
 | Content impact | For destructive changes, counts the affected content (latest and published versions). Unknown counts are shown as "impact unknown", never as 0. | Planned |
-| Sync | Applies the confirmed diff to **one** target environment after the user types the target project name. Shows progress and the result. | Planned |
 | Pre-sync backup | Snapshots the target model before every sync. | Planned |
-| Subscription users (optional) | Shows who has access to each client project. | Planned |
+| Sync | Applies the confirmed diff to **one** target environment after the user types the target project name. Shows progress and the result. | Planned |
+| Audit log | Records every backup and sync: who, when, which target, result. | Planned |
 
 Content types, snippets and taxonomies are synced by default. Collections, spaces, languages and workflows are **opt-in per sync**.
 
 ### Phase 2
 
-Selective sync of individual entities, exclusion management per client, restore from a pre-sync backup, and an audit log for syncs (user, time, source, target, entities, diff summary, result), extending the Phase 1 key audit log.
+Selective sync of individual entities, exclusion management per client, and restore from a pre-sync backup.
 
 ### Phase 3
 
@@ -61,28 +61,18 @@ These rules are enforced in the backend, not only in the UI:
 - **Backup first.** The target model is snapshotted before any change is applied.
 - **Client extensions are protected.** See [the reserved prefix](#client-extensions-the-reserved-prefix).
 
-### Roles
-
-Roles come only from the group claim in the Entra ID access token, never from Kontent.ai roles.
-
-| Role | Entra groups | Can |
-|---|---|---|
-| Operator | `OIDC_ALLOWED_GROUP_IDS` | View the registry, run diffs, backups and syncs. Sees for each key only whether it is set, when it was last changed and by whom. Can never view, set, replace or remove a key. |
-| Admin | `OIDC_ADMIN_GROUP_IDS` | Everything an operator can do, plus **Settings > Keys**, **Settings > Re-encrypt secrets**, and adding, changing or removing clients in the registry (a registry entry ties a key to an environment). |
-
-A user in neither group is rejected. A user in an admin group does not also need to be in an operator group.
-
 ## How it works
 
 ```
-Kontent.ai (master project)
+Kontent.ai (master project, signed-in user)
   └─ Custom app (this React app, full screen, iframe)
-        │  Bearer token (Entra ID)
+        │  access secret + Kontent.ai user ID and email (from the custom app context)
         ▼
-Netlify Functions (/api/*)
-  ├─ auth: validate token issuer, audience, signature, group claim
-  ├─ registry, secrets, jobs (Netlify Blobs, keys encrypted)
-  └─ background functions: snapshot, diff, backup, sync
+Vercel Functions (/api/*)
+  ├─ access check: secret, then user and role via the Subscription API
+  ├─ Management API keys: read from environment variables per environment
+  ├─ audit log, backups, job state: Vercel Blob (private)
+  └─ diff, backup, sync: @kontent-ai/data-ops
         │
         ├─ Subscription API (read-only): projects, environments, users
         ├─ Management API: master (read), client environments (read/write)
@@ -90,6 +80,8 @@ Netlify Functions (/api/*)
 ```
 
 All Kontent.ai API calls and all data-ops calls run in the backend. The browser never sees an API key.
+
+data-ops identifies the source and the target by environment ID, each with its own API key. Environment IDs are unique across projects, so syncing from the master project to a client project works the same way as syncing between environments of one project.
 
 ### Sync pipeline
 
@@ -105,7 +97,37 @@ The diff and apply logic comes from [`@kontent-ai/data-ops`](https://github.com/
 8. **Backup.** Snapshot the target model.
 9. **Validate and apply.** Run data-ops validation, then data-ops applies the filtered diff.
 
-Long-running steps run as Netlify background functions. The UI polls the job status.
+## Access control
+
+Kontent.ai shows the custom app only to signed-in users whose role is allowed in the custom app settings. That protects the user interface, but the Vercel Functions are public URLs that anyone could call directly. The custom app context (user ID, email, roles) is read in the browser and Kontent.ai does not sign it, so the backend cannot take it on trust.
+
+Every API request is therefore checked in the backend:
+
+1. **Access secret.** The request must carry the secret from the custom app **Parameters {JSON}** (`{"accessSecret": "..."}`). The backend compares it with `APP_ACCESS_SECRET` in constant time. A wrong secret is rejected before any Kontent.ai API is called.
+2. **User.** The request carries the Kontent.ai user ID and email from the custom app context. The backend looks the user up with the Subscription API and requires that:
+   - the user exists and the email matches,
+   - the user is **active in the master environment**, and
+   - the user has an allowed role there (`ALLOWED_ROLES`, default `project-manager`; custom roles by role ID).
+
+User lookups are cached for 60 seconds per function instance. A failed Subscription API call is not cached.
+
+The access secret is visible to everyone who can open the app (it is part of the custom app context). It only unlocks this app's API, never a Kontent.ai API key. Rotate it by changing `APP_ACCESS_SECRET` in Vercel and the custom app parameters, then redeploying.
+
+## Management API keys
+
+No Kontent.ai API returns Management API keys, so they are configured as environment variables in Vercel, one per environment:
+
+```
+KONTENT_MAPI_KEY_<environment ID with "-" replaced by "_">
+```
+
+For example, environment `3f2a9c1e-8b7d-4e2f-9a6c-1d2e3f4a5b6c` uses `KONTENT_MAPI_KEY_3f2a9c1e_8b7d_4e2f_9a6c_1d2e3f4a5b6c`.
+
+- **Project fallback.** A Management API key belongs to a project and can cover several environments. Instead of one variable per environment you can set `KONTENT_MAPI_KEY_<project ID with "-" replaced by "_">`. The environment variable wins if both exist.
+- **Case.** Variable names are matched case-insensitively.
+- **No code change for a new client.** The backend reads the variables on every request. The project overview shows every environment without a key, with the exact variable name to add.
+- **Redeploy after adding a key.** Vercel applies environment variable changes to new deployments only. After adding a key, redeploy the latest deployment (no code change needed).
+- **Never in Parameters {JSON}.** The custom app parameters are sent to the browser. Keys must only be in Vercel environment variables.
 
 ## Client extensions: the reserved prefix
 
@@ -148,7 +170,7 @@ Impact counts cover both the latest version (Management API) and the published v
 What this app cannot do, mostly because of data-ops or the Kontent.ai APIs:
 
 - **Not synced:** roles, webhooks, preview URLs, custom apps and custom element settings. These per-client settings are never touched.
-- **No projects created through the API.** A new client project is created by hand in Kontent.ai, then registered here. The Subscription API is read-only in this app.
+- **No projects created through the API.** A new client project is created by hand in Kontent.ai. It then appears in the project overview automatically.
 - **Environments can only be created by cloning** within a project (Phase 3 onboarding).
 - **Restore covers the model structure, not the content.** Content in elements that a sync removed is not brought back.
 - **Asset folders** cannot be moved (data-ops deletes and recreates them) and cannot be deleted while they contain assets.
@@ -160,8 +182,7 @@ What this app cannot do, mostly because of data-ops or the Kontent.ai APIs:
 
 - Node.js 22 or later (required by data-ops)
 - pnpm 10
-- A Netlify site with Functions, Background Functions and Blobs. Check that your Netlify plan includes Background Functions.
-- A Microsoft Entra ID tenant where you can create an app registration and a security group
+- A Vercel project with a **Vercel Blob** store connected (private access)
 - Kontent.ai:
   - a master project
   - a Management API key per project (master and each client)
@@ -176,98 +197,68 @@ What this app cannot do, mostly because of data-ops or the Kontent.ai APIs:
 pnpm install
 ```
 
-### 2. Create the Entra ID app registration
-
-1. In Entra ID, create an app registration (single tenant). Note the **Application (client) ID** and **Directory (tenant) ID**.
-2. Under **Authentication**, add a **Single-page application** platform with the redirect URI `https://<your-site>/auth/redirect`. Add `https://localhost:5173/auth/redirect` for local development. This path is a blank page that only runs MSAL's redirect bridge (`broadcastResponseToMainFrame` from `@azure/msal-browser/redirect-bridge`) to hand the sign-in result back to the app. It does not load the app itself.
-3. Under **Expose an API**, set the application ID URI (for example `api://<client-id>`) and add a scope, for example `access`.
-4. In the **Manifest**, set `requestedAccessTokenVersion` (shown as `accessTokenAcceptedVersion` in older manifests) to `2`, so access tokens use the v2 issuer and the client ID as audience.
-5. Under **Token configuration**, add the **groups** claim (security groups) to the access token.
-6. Create two security groups: one for operators and one for admins. Note their object IDs.
-
-If users belong to many groups, Entra ID may omit the groups from the token. Limit the claim to groups assigned to the application to avoid this. A token without the groups claim is always rejected.
-
-### 3. Create the Kontent.ai API keys
+### 2. Create the Kontent.ai API keys
 
 In each project, go to **Project settings > API keys > Management API keys > Create Management API key**. Limit each key to the environments the app needs. Set an expiry date, and note it: the maximum is 2 years.
 
 | Key | Permissions |
 |---|---|
-| Master project | Manage content model, Manage environment settings, Read content, Read assets. Add Manage environments only if you sync live preview. The master is read-only in this app, but reading the model requires these permissions. |
+| Master project | Manage content model, Manage environment settings, Read content, Read assets. Add Manage environments only if you sync live preview. The app only reads from the master. |
 | Each client project | Manage content model, Manage environment settings, Read content, Read assets, Create, edit, and delete assets (for asset folders). Add Manage environments for live preview sync and Phase 3 onboarding. |
-| Subscription API key | From subscription administration. This key can activate and deactivate users across all projects. The app wraps it so only GET requests are possible. |
+| Subscription API key | From **Subscriptions > your subscription > Subscription API**. This key can activate and deactivate users across all projects. The app only ever sends GET requests with it. |
 | Delivery API key (optional) | Secure access, for client environments with secure access enabled. Used for published content counts. |
 
-### 4. Generate the encryption key
+### 3. Generate the access secret
 
 ```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-Store the output as `SECRETS_ENCRYPTION_KEY` in Netlify. Never commit it.
+### 4. Deploy to Vercel
 
-### 5. Deploy to Netlify
+1. Create a Vercel project from this repository. `vercel.json` sets the build and the `Content-Security-Policy: frame-ancestors https://app.kontent.ai` header.
+2. Under **Storage**, create a **Blob** store with private access and connect it to the project. This sets `BLOB_READ_WRITE_TOKEN`.
+3. Under **Settings > Environment Variables**, add the [environment variables](#environment-variables), including `APP_ACCESS_SECRET` and one `KONTENT_MAPI_KEY_...` per environment (at least the master).
+4. Deploy.
 
-1. Create a Netlify site from this repository.
-2. Set the [environment variables](#environment-variables) in **Site configuration > Environment variables**.
-3. Deploy. `netlify.toml` sets `Content-Security-Policy: frame-ancestors https://app.kontent.ai` so the app can only be framed by Kontent.ai.
-
-### 6. Register the custom app in Kontent.ai (master project only)
+### 5. Register the custom app in Kontent.ai (master environment only)
 
 1. In the master environment, go to **Environment settings > Custom apps > Create new custom app**.
 2. **App name:** for example, Content Model Sync.
-3. **Hosted code URL (HTTPS):** your Netlify site URL.
-4. **Roles that can work with this app:** the roles that should see the app. This only controls visibility in the menu. Access is enforced by the Entra ID group.
+3. **Hosted code URL (HTTPS):** your Vercel production URL.
+4. **Roles that can work with this app:** the roles that should see the app. Keep this in line with `ALLOWED_ROLES`: users with other roles see the app but are refused by the backend.
 5. **Display mode:** Full screen.
-6. **Parameters {JSON}:** leave empty. Never put API keys or other secrets here.
+6. **Parameters {JSON}:** `{"accessSecret": "<the value of APP_ACCESS_SECRET>"}`. Nothing else, and never an API key.
 7. Click **Save changes**.
 
-### 7. First run
+### 6. First run
 
-An admin does steps 1 to 4. Operators can then run diffs and syncs.
-
-1. Open the app from **Custom apps** in Kontent.ai and sign in with Entra ID.
-2. Under **Settings > Keys**, add the Subscription API key and the master Management API key.
-3. Under **Clients**, pick a client project and its environments from the subscription, add its Management API key, and assign stages (dev and prod).
-4. Use **Test connection** to check that each key works, then run your first diff.
+1. Open the app from **Custom apps** in Kontent.ai. It checks your access and shows whether the master key is configured.
+2. Open the project overview. For each client environment marked **Key missing**, add the variable it shows in Vercel, then redeploy.
+3. Run your first diff.
 
 ## Environment variables
 
-Server-side variables are only available to Netlify Functions. `VITE_` variables are embedded in the frontend bundle and must not contain secrets.
+All variables are server-side and only read by the Vercel Functions. The frontend has no build-time variables.
 
-| Variable | Side | Description |
+| Variable | Required | Description |
 |---|---|---|
-| `KONTENT_SUBSCRIPTION_ID` | Server | Kontent.ai subscription ID |
-| `KONTENT_MASTER_ENVIRONMENT_ID` | Server | Master environment ID. Never accepted as a sync target. |
-| `CLIENT_PREFIX` | Server | Reserved prefix for client extensions. Default: `client_` |
-| `SECRETS_ENCRYPTION_KEY` | Server | Base64, 32 bytes. Encrypts the stored API keys. |
-| `SECRETS_ENCRYPTION_KEY_PREVIOUS` | Server | Optional. The previous key during encryption key rotation. |
-| `OIDC_TENANT_ID` | Server | Entra directory (tenant) ID |
-| `OIDC_CLIENT_ID` | Server | Application (client) ID of the app registration |
-| `OIDC_AUDIENCE` | Server | Optional. Comma-separated accepted `aud` values. Default: `OIDC_CLIENT_ID` (the v2 token audience). |
-| `OIDC_ISSUER` | Server | Optional. Default: `https://login.microsoftonline.com/<OIDC_TENANT_ID>/v2.0`. Signing keys are found through the issuer's OpenID configuration. |
-| `OIDC_ALLOWED_GROUP_IDS` | Server | Comma-separated group object IDs for **operators** |
-| `OIDC_ADMIN_GROUP_IDS` | Server | Comma-separated group object IDs for **admins** |
-| `VITE_OIDC_AUTHORITY` | Frontend | For example `https://login.microsoftonline.com/<tenant-id>` |
-| `VITE_OIDC_CLIENT_ID` | Frontend | Same value as `OIDC_CLIENT_ID` |
-| `VITE_OIDC_SCOPES` | Frontend | For example `api://<client-id>/access` |
+| `KONTENT_SUBSCRIPTION_ID` | Yes | Kontent.ai subscription ID |
+| `KONTENT_SUBSCRIPTION_API_KEY` | Yes | Subscription API key. Used for GET requests only. |
+| `KONTENT_MASTER_ENVIRONMENT_ID` | Yes | Master environment ID (GUID). Never accepted as a sync target. |
+| `KONTENT_MAPI_KEY_<id>` | Per environment | Management API key, see [Management API keys](#management-api-keys) |
+| `APP_ACCESS_SECRET` | Yes | At least 32 characters. Same value as `accessSecret` in the custom app parameters. |
+| `ALLOWED_ROLES` | No | Comma-separated role codenames or role IDs in the master environment. Default: `project-manager` |
+| `CLIENT_PREFIX` | No | Reserved prefix for client extensions. Default: `client_` |
+| `BLOB_READ_WRITE_TOKEN` | Yes | Set by Vercel when a Blob store is connected |
 
-The backend refuses to start a request if a required server variable is missing or if `OIDC_ALLOWED_GROUP_IDS` and `OIDC_ADMIN_GROUP_IDS` are both empty.
-
-`.env.example` lists the same variables for local development.
-
-### Rotating keys
-
-Both are admin tasks, and both are recorded in the audit log.
-
-- **Kontent.ai API keys:** regenerate the key in Kontent.ai, then enter the new value in the app. The old value is overwritten. Keys are never shown again after they are saved.
-- **Encryption key:** set the new key as `SECRETS_ENCRYPTION_KEY` and the old one as `SECRETS_ENCRYPTION_KEY_PREVIOUS`, deploy, run **Settings > Re-encrypt secrets**, then remove the previous key.
+A request fails with a server error if a required variable is missing or invalid. The function log names the variable, never its value. `.env.example` lists the same variables for local development.
 
 ## Local development
 
 ```bash
 pnpm dev          # frontend only, https://localhost:5173 (self-signed certificate)
-netlify dev       # frontend + functions + Blobs (requires the Netlify CLI)
+vercel dev        # frontend + functions (requires the Vercel CLI and a linked project)
 ```
 
 Kontent.ai only loads custom apps over HTTPS. To open your local app inside Kontent.ai, register a separate custom app in a non-production environment that points to a secure tunnel to your machine (for example ngrok).
@@ -277,12 +268,12 @@ Kontent.ai only loads custom apps over HTTPS. To open your local app inside Kont
 | Command | Description |
 |---|---|
 | `pnpm build` | Type-check and build |
-| `pnpm test` | Unit tests (Vitest), with Kontent.ai APIs and data-ops mocked |
+| `pnpm test` | Unit tests (Vitest), with Kontent.ai APIs, Vercel Blob and data-ops mocked |
 | `pnpm lint` | ESLint |
 | `pnpm biome:check` | Biome lint and format check |
-| `pnpm check:data-ops` | Fails if the installed data-ops version differs from the validated version |
+| `pnpm check:data-ops` | Planned. Fails if the installed data-ops version differs from the validated version |
 
-CI runs Biome, ESLint, the tests, the data-ops version check and the build.
+CI runs Biome, ESLint, the tests and the build.
 
 ## The data-ops patch
 
@@ -304,39 +295,37 @@ Safeguards:
 
 ## Security model
 
-- **Authorisation** is based only on the Entra ID access token. The backend validates its issuer, audience, signature, expiry and group claim on every request, and checks the role for each endpoint. The Kontent.ai custom app context is used for display only, never for authorisation: Kontent.ai does not sign it.
-- **Tokens** are kept in memory and sent as bearer tokens. No cookies are used.
-- **API keys** are encrypted with AES-256-GCM in Netlify Blobs. They are never sent to the browser. Only admins can set them. The secret store is behind an interface so Azure Key Vault can replace it later.
-- **Audit log:** every key change and re-encryption is recorded (user, time, key, action), without the key value.
-- **The Subscription API key** is wrapped so only GET requests are possible.
+- **API keys** are only in Vercel environment variables. They are never sent to the browser, never logged and never stored in Vercel Blob.
+- **Every API request** is checked for the access secret and for an active master-environment user with an allowed role (see [Access control](#access-control)).
+- **The Subscription API key** is only used for GET requests: the client has no way to send anything else.
+- **Storage** (audit log, backups, job state) uses private Vercel Blob storage.
 - **Framing** is limited to `https://app.kontent.ai`.
 
 Remaining risks:
 
-- Any operator can sync to any registered client. Keep both groups small.
-- Anyone with access to the Netlify site's environment variables, together with the Blobs data, can decrypt all keys. Limit Netlify team access.
-- `frame-ancestors` restricts framing, not direct calls to the API. The API relies on token validation.
-- Kontent.ai API keys expire (maximum 2 years for Management API keys). Track expiry dates in the registry.
+- **The access secret and the user ID are not proof of identity.** Anyone who can open the app can read the secret. Someone who has the secret and knows the internal user ID and email of an allowed user can call the API directly. Keep the set of people who can open the app small and rotate the secret when someone leaves.
+- **Any allowed user can sync to any client environment that has a key.**
+- **Anyone with access to the Vercel project's environment variables** has every Management API key. Limit Vercel team access.
+- **Kontent.ai API keys expire** (maximum 2 years for Management API keys). Track expiry dates.
 
 ## Not yet verified
 
 These points will be tested during Phase 1, and this README will be updated with the results:
 
-- Entra ID sign-in through an MSAL popup opened from the sandboxed Kontent.ai iframe
+- That the `userId` from the custom app context is the same ID the Subscription API uses for users (the email is cross-checked as well)
+- How subscription admins without a role in the master environment appear in the Subscription API (they are currently refused)
 - What the Management API does with variants in a workflow step that is removed (blocked until verified)
-- Whether the Netlify plan in use includes Background Functions, and the synchronous function timeout
-- Whether data-ops fits comfortably within the Netlify function bundle size limits
+- Vercel Function duration limits on the plan in use, for long syncs
+- Whether data-ops fits comfortably within the Vercel Function size limit
 
 ## Project structure
 
-Planned layout:
-
 ```
 src/                  React custom app (frontend)
-netlify/functions/    API endpoints and background functions
-server/               Service layer: auth, secrets, registry, jobs, Kontent.ai clients, sync engine adapter
-patches/              pnpm patch for @kontent-ai/data-ops
-scripts/              Build checks (data-ops version guard)
+api/                  Vercel Functions (one file per endpoint)
+server/               Service layer: access check, config, Kontent.ai clients, keys, storage, audit
+patches/              Planned: pnpm patch for @kontent-ai/data-ops
+scripts/              Planned: build checks (data-ops version guard)
 ```
 
 Built on the [Kontent.ai custom app starter for React](https://github.com/kontent-ai/custom-app-starter-react) and the [Custom app SDK](https://github.com/kontent-ai/custom-app-sdk-js).
@@ -347,6 +336,7 @@ Built on the [Kontent.ai custom app starter for React](https://github.com/konten
 - [Management API](https://kontent.ai/learn/docs/apis/management-api-v2/introduction)
 - [Subscription API](https://kontent.ai/learn/docs/apis/subscription-api/introduction)
 - [data-ops](https://github.com/kontent-ai/data-ops)
+- [Vercel Blob private storage](https://vercel.com/docs/vercel-blob/private-storage)
 
 ## License
 
