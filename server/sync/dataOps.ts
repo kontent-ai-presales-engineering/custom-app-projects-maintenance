@@ -6,13 +6,17 @@
  * The internal entry points are exposed by patches/@kontent-ai__data-ops@2.8.1.patch,
  * which only adds "exports" entries. scripts/check-data-ops.mjs guards the version.
  */
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncSnapshot } from "@kontent-ai/data-ops";
+import { createClient } from "@kontent-ai/data-ops/internal/client";
 import { type SyncDiffInternalResult, syncDiffInternal } from "@kontent-ai/data-ops/internal/diff";
 import type { PatchOperation } from "@kontent-ai/data-ops/internal/patch-operation";
 import { renderDiffReport } from "@kontent-ai/data-ops/internal/report";
+import { sync } from "@kontent-ai/data-ops/internal/sync";
+import { validateTargetEnvironment } from "@kontent-ai/data-ops/internal/sync-run";
 
 export type DiffModel = SyncDiffInternalResult["diffModel"];
 export type { PatchOperation };
@@ -131,3 +135,115 @@ export const createDataOpsSnapshotter = (run: SnapshotRunner = syncSnapshot): Sn
     }
   },
 });
+
+const emptyDiffObject = () => ({ added: [], updated: new Map(), deleted: new Set<string>() });
+
+/**
+ * Keeps only the chosen entities' part of a diff and empties the rest. data-ops' own
+ * syncRun filters the models the same way before diffing; syncDiffInternal does not,
+ * so this makes the diff that is shown, hashed and applied cover exactly the choice.
+ */
+export const pickEntities = (
+  model: DiffModel,
+  entities: ReadonlyArray<SelectableEntity>,
+): DiffModel => {
+  const has = (entity: SelectableEntity) => entities.includes(entity);
+  return {
+    contentTypes: has("contentTypes") ? model.contentTypes : emptyDiffObject(),
+    contentTypeSnippets: has("contentTypeSnippets") ? model.contentTypeSnippets : emptyDiffObject(),
+    taxonomyGroups: has("taxonomies") ? model.taxonomyGroups : emptyDiffObject(),
+    collections: has("collections") ? model.collections : [],
+    spaces: has("spaces") ? model.spaces : emptyDiffObject(),
+    languages: has("languages")
+      ? model.languages
+      : { ...emptyDiffObject(), inactiveTargetLanguageCodenames: new Set<string>() },
+    workflows: has("workflows") ? model.workflows : { ...emptyDiffObject(), sourceWorkflows: [] },
+    // Not offered in the app: never synced.
+    assetFolders: [],
+    livePreview: { change: "none" },
+  };
+};
+
+const canonical = (value: unknown): unknown => {
+  if (value instanceof Map) {
+    return {
+      map: [...(value as Map<string, unknown>).entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, entry]) => [key, canonical(entry)]),
+    };
+  }
+  if (value instanceof Set) {
+    return { set: [...(value as Set<string>)].sort() };
+  }
+  if (Array.isArray(value)) {
+    return value.map(canonical);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonical((value as Record<string, unknown>)[key])]),
+    );
+  }
+  return value;
+};
+
+/**
+ * A stable fingerprint of exactly what a sync would apply. The confirmed diff and the
+ * diff recomputed at sync time must have the same hash, or the sync stops.
+ */
+export const hashDiff = (
+  model: DiffModel,
+  context: Readonly<{
+    sourceEnvironmentId: string;
+    targetEnvironmentId: string;
+    entities: ReadonlyArray<SelectableEntity>;
+  }>,
+): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        source: context.sourceEnvironmentId,
+        target: context.targetEnvironmentId,
+        entities: [...context.entities].sort(),
+        model: canonical(model),
+      }),
+    )
+    .digest("hex");
+
+export type SyncEngine = Readonly<{
+  /** data-ops' pre-sync validation. Returns the problems (codenames only), empty when valid. */
+  validate: (target: EnvironmentRef, model: DiffModel) => Promise<ReadonlyArray<string>>;
+  /** Applies the diff to the target. Not transactional: a failure can leave it partly applied. */
+  apply: (
+    target: EnvironmentRef,
+    model: DiffModel,
+    entities: ReadonlyArray<SelectableEntity>,
+  ) => Promise<void>;
+}>;
+
+const clientFor = (target: EnvironmentRef) =>
+  createClient({
+    environmentId: target.environmentId,
+    apiKey: target.apiKey,
+    commandName,
+    baseUrl: undefined,
+  });
+
+export const dataOpsSyncEngine: SyncEngine = {
+  validate: async (target, model) => {
+    try {
+      await validateTargetEnvironment(model, clientFor(target));
+      return [];
+    } catch (error) {
+      if (Array.isArray(error) && error.every((problem) => typeof problem === "string")) {
+        return error as ReadonlyArray<string>;
+      }
+      throw error;
+    }
+  },
+
+  apply: async (target, model, entities) => {
+    await sync(clientFor(target), model, new Set(entities), { logLevel: "none" });
+  },
+};

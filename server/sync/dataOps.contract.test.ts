@@ -98,3 +98,45 @@ describe("snapshotter", () => {
     expect(existsSync(usedFolder)).toBe(false);
   });
 });
+
+describe("diff hashing and entity picking", () => {
+  it("hashes the same diff the same way regardless of Map and Set order", async () => {
+    const { hashDiff } = await import("./dataOps.js");
+    const ctx = {
+      sourceEnvironmentId: masterEnvId,
+      targetEnvironmentId: clientEnvId,
+      entities: ["contentTypes"] as const,
+    };
+    const a = diffModel({
+      contentTypes: { updated: { a: [remove("/x")], b: [remove("/y")] }, deleted: ["p", "q"] },
+    });
+    const b = diffModel({
+      contentTypes: { updated: { b: [remove("/y")], a: [remove("/x")] }, deleted: ["q", "p"] },
+    });
+
+    expect(hashDiff(a, ctx)).toBe(hashDiff(b, ctx));
+    expect(hashDiff(a, ctx)).not.toBe(hashDiff(diffModel(), ctx));
+    expect(hashDiff(a, ctx)).not.toBe(hashDiff(a, { ...ctx, targetEnvironmentId: masterEnvId }));
+  });
+
+  it("keeps only the chosen entities", async () => {
+    const { pickEntities } = await import("./dataOps.js");
+    const model = diffModel({
+      contentTypes: { deleted: ["old"] },
+      taxonomyGroups: { deleted: ["tags"] },
+      collections: [remove("/codename:c")],
+    });
+
+    const picked = pickEntities(model, ["taxonomies"]);
+
+    expect([...picked.taxonomyGroups.deleted]).toEqual(["tags"]);
+    expect(picked.contentTypes.deleted.size).toBe(0);
+    expect(picked.collections).toEqual([]);
+  });
+
+  it("exposes data-ops' own Management client factory", async () => {
+    const { createClient } = await import("@kontent-ai/data-ops/internal/client");
+
+    expect(typeof createClient).toBe("function");
+  });
+});

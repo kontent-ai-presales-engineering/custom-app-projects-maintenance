@@ -169,3 +169,35 @@ output.status {
 td button + button {
   margin-left: 8px;
 }
+
+.panel.sync {
+  border-color: #3b5bdb;
+}
+
+.panel.synced {
+  border-color: #1b7f3b;
+  background: #e6f4ea;
+}
+
+.confirm {
+  display: block;
+  margin: 12px 0;
+}
+
+.confirm input[type="text"] {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  width: 320px;
+  max-width: 100%;
+}
+
+.steps {
+  padding-left: 20px;
+}
+
+button.danger:not(:disabled) {
+  background: #b00020;
+  color: #fff;
+  border: none;
+}

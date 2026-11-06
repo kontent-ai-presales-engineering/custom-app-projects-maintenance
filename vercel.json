@@ -25,6 +25,9 @@
   "functions": {
     "api/diff.ts": {
       "maxDuration": 300
+    },
+    "api/sync.ts": {
+      "maxDuration": 300
     }
   }
 }

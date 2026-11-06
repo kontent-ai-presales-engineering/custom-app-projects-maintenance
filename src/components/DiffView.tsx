@@ -9,6 +9,7 @@ import {
   selectableEntities,
 } from "../api/client.ts";
 import { BackupPanel } from "./BackupPanel.tsx";
+import { SyncPanel } from "./SyncPanel.tsx";
 
 export type DiffTarget = Readonly<{
   environmentId: string;
@@ -194,6 +195,8 @@ export const DiffView = ({ client, target, onBack }: DiffViewProps) => {
     () => new Set(selectableEntities.filter((e) => e.default).map((e) => e.id)),
   );
   const [state, setState] = useState<RunState>({ kind: "idle" });
+  // Bumped after a sync so the backup list shows the new pre-sync backup.
+  const [backupsVersion, setBackupsVersion] = useState(0);
 
   const toggle = (entity: SelectableEntity) =>
     setEntities((current) => {
@@ -266,8 +269,16 @@ export const DiffView = ({ client, target, onBack }: DiffViewProps) => {
         </p>
       ) : null}
       {state.kind === "done" ? <Result result={state.result} /> : null}
+      {state.kind === "done" && state.result.blocks.length === 0 && !state.result.inSync ? (
+        <SyncPanel
+          key={state.result.diffHash}
+          client={client}
+          result={state.result}
+          onFinished={() => setBackupsVersion((version) => version + 1)}
+        />
+      ) : null}
 
-      <BackupPanel client={client} environmentId={target.environmentId} />
+      <BackupPanel key={backupsVersion} client={client} environmentId={target.environmentId} />
     </div>
   );
 };

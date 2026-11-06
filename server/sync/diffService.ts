@@ -3,10 +3,22 @@ import { HttpError } from "../errors.js";
 import { resolveDeliveryKey, resolveManagementKey } from "../keys/envKeys.js";
 import type { DeliveryClient } from "../kontent/deliveryClient.js";
 import type { ManagementClient } from "../kontent/managementClient.js";
-import type { ProjectService } from "../projects/projectService.js";
-import { analyzeDiff, type Block, type EntityChange, type Warning } from "./analyze.js";
+import type { LocatedEnvironment, ProjectService } from "../projects/projectService.js";
+import {
+  type Analysis,
+  analyzeDiff,
+  type Block,
+  type EntityChange,
+  type Warning,
+} from "./analyze.js";
 import { dropPrefixedRemovals, findPrefixInMaster } from "./clientPrefix.js";
-import type { DiffEngine, SelectableEntity } from "./dataOps.js";
+import {
+  type DiffEngine,
+  type DiffModel,
+  hashDiff,
+  pickEntities,
+  type SelectableEntity,
+} from "./dataOps.js";
 import { countImpact, type Impact } from "./impact.js";
 
 export type DestructiveChangeView = Readonly<{
@@ -27,6 +39,8 @@ export type DiffResult = Readonly<{
   }>;
   entities: ReadonlyArray<SelectableEntity>;
   generatedAt: string;
+  /** Fingerprint of exactly what a sync would apply. Sent back when confirming a sync. */
+  diffHash: string;
   /** True when there is nothing to sync for the chosen entities. */
   inSync: boolean;
   changes: ReadonlyArray<EntityChange>;
@@ -39,11 +53,29 @@ export type DiffResult = Readonly<{
   reportHtml: string;
 }>;
 
+/** A computed diff with what a sync needs. Server-side only: it holds the target key. */
+export type PreparedDiff = Readonly<{
+  target: LocatedEnvironment;
+  targetKey: string;
+  masterEnvironmentId: string;
+  entities: ReadonlyArray<SelectableEntity>;
+  /** Restricted to the chosen entities and filtered for client items: what sync applies. */
+  model: DiffModel;
+  diffHash: string;
+  analysis: Analysis;
+  keptClientItems: ReadonlyArray<string>;
+}>;
+
 export type DiffService = Readonly<{
   diff: (
     targetEnvironmentId: string,
     entities: ReadonlyArray<SelectableEntity>,
   ) => Promise<DiffResult>;
+  /** The diff pipeline without impact counts or report, used again just before a sync. */
+  prepare: (
+    targetEnvironmentId: string,
+    entities: ReadonlyArray<SelectableEntity>,
+  ) => Promise<PreparedDiff>;
 }>;
 
 export type DiffServiceDeps = Readonly<{
@@ -62,11 +94,14 @@ const defaultLog = (message: string, error: unknown) => {
   console.error(message, error instanceof Error ? error.name : "unknown");
 };
 
-export const createDiffService = (deps: DiffServiceDeps): DiffService => ({
-  diff: async (targetEnvironmentId, entities) => {
-    const log = deps.log ?? defaultLog;
-    const prefix = deps.config.clientPrefix;
-    const masterId = deps.config.masterEnvironmentId;
+export const createDiffService = (deps: DiffServiceDeps): DiffService => {
+  const log = deps.log ?? defaultLog;
+  const prefix = deps.config.clientPrefix;
+
+  const prepareInternal = async (
+    targetEnvironmentId: string,
+    entities: ReadonlyArray<SelectableEntity>,
+  ) => {
     const env = deps.env();
 
     const target = await deps.projects.locate(targetEnvironmentId);
@@ -78,7 +113,7 @@ export const createDiffService = (deps: DiffServiceDeps): DiffService => ({
       );
     }
 
-    const master = await deps.projects.locate(masterId);
+    const master = await deps.projects.locate(deps.config.masterEnvironmentId);
     const masterKey = resolveManagementKey(env, {
       environmentId: master.environmentId,
       projectId: master.projectId,
@@ -95,7 +130,7 @@ export const createDiffService = (deps: DiffServiceDeps): DiffService => ({
       );
     }
 
-    let rawModel: Awaited<ReturnType<DiffEngine["diff"]>>;
+    let rawModel: DiffModel;
     try {
       rawModel = await deps.engine.diff(
         { environmentId: master.environmentId, apiKey: masterKey.value },
@@ -111,8 +146,9 @@ export const createDiffService = (deps: DiffServiceDeps): DiffService => ({
       );
     }
 
-    const masterPrefixHits = findPrefixInMaster(rawModel, prefix);
-    const { model, dropped } = dropPrefixedRemovals(rawModel, prefix);
+    const picked = pickEntities(rawModel, entities);
+    const masterPrefixHits = findPrefixInMaster(picked, prefix);
+    const { model, dropped } = dropPrefixedRemovals(picked, prefix);
 
     const management = deps.managementClient(target.environmentId, targetKey.value);
     let targetModel: Parameters<typeof analyzeDiff>[1];
@@ -135,48 +171,79 @@ export const createDiffService = (deps: DiffServiceDeps): DiffService => ({
       );
     }
 
-    const analysis = analyzeDiff(model, targetModel, prefix, masterPrefixHits);
-    const impacts = await countImpact(analysis.destructive, {
-      management,
-      delivery: deps.deliveryClient(
-        target.environmentId,
-        resolveDeliveryKey(env, target.environmentId) ?? undefined,
-      ),
-      types: targetModel.types,
-      languages,
-    });
-
-    return {
-      source: { environmentId: master.environmentId },
-      target: {
-        environmentId: target.environmentId,
-        environmentName: target.environmentName,
-        projectId: target.projectId,
-        projectName: target.projectName,
-      },
+    const prepared: PreparedDiff = {
+      target,
+      targetKey: targetKey.value,
+      masterEnvironmentId: master.environmentId,
       entities,
-      generatedAt: (deps.now ?? (() => new Date()))().toISOString(),
-      inSync: analysis.changes.length === 0,
-      changes: analysis.changes,
-      destructive: analysis.destructive.map((change) => ({
-        id: change.id,
-        entity: change.entity,
-        owner: change.owner,
-        description: change.description,
-        impact: impacts.get(change.id) ?? {
-          latest: null,
-          published: null,
-          unknownReasons: ["Not counted."],
-        },
-      })),
-      blocks: analysis.blocks,
-      warnings: analysis.warnings,
-      keptClientItems: dropped,
-      reportHtml: deps.engine.renderReport(
-        model,
-        { sourceEnvironmentId: master.environmentId, targetEnvironmentId: target.environmentId },
+      model,
+      diffHash: hashDiff(model, {
+        sourceEnvironmentId: master.environmentId,
+        targetEnvironmentId: target.environmentId,
         entities,
-      ),
+      }),
+      analysis: analyzeDiff(model, targetModel, prefix, masterPrefixHits),
+      keptClientItems: dropped,
     };
-  },
-});
+    return { prepared, management, targetModel, languages };
+  };
+
+  return {
+    prepare: async (targetEnvironmentId, entities) =>
+      (await prepareInternal(targetEnvironmentId, entities)).prepared,
+
+    diff: async (targetEnvironmentId, entities) => {
+      const { prepared, management, targetModel, languages } = await prepareInternal(
+        targetEnvironmentId,
+        entities,
+      );
+      const { target, analysis } = prepared;
+      const impacts = await countImpact(analysis.destructive, {
+        management,
+        delivery: deps.deliveryClient(
+          target.environmentId,
+          resolveDeliveryKey(deps.env(), target.environmentId) ?? undefined,
+        ),
+        types: targetModel.types,
+        languages,
+      });
+
+      return {
+        source: { environmentId: prepared.masterEnvironmentId },
+        target: {
+          environmentId: target.environmentId,
+          environmentName: target.environmentName,
+          projectId: target.projectId,
+          projectName: target.projectName,
+        },
+        entities,
+        generatedAt: (deps.now ?? (() => new Date()))().toISOString(),
+        diffHash: prepared.diffHash,
+        inSync: analysis.changes.length === 0,
+        changes: analysis.changes,
+        destructive: analysis.destructive.map((change) => ({
+          id: change.id,
+          entity: change.entity,
+          owner: change.owner,
+          description: change.description,
+          impact: impacts.get(change.id) ?? {
+            latest: null,
+            published: null,
+            unknownReasons: ["Not counted."],
+          },
+        })),
+        blocks: analysis.blocks,
+        warnings: analysis.warnings,
+        keptClientItems: prepared.keptClientItems,
+        reportHtml: deps.engine.renderReport(
+          prepared.model,
+          {
+            sourceEnvironmentId: prepared.masterEnvironmentId,
+            targetEnvironmentId: target.environmentId,
+          },
+          entities,
+        ),
+      };
+    },
+  };
+};

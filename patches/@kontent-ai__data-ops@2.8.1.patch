@@ -1,8 +1,8 @@
 diff --git a/package.json b/package.json
-index cd865a33e8c7905daab361056dc060fdf700548a..cb52308f4843f2a3d4c5697694b7aa9d83d08be3 100644
+index cd865a33e8c7905daab361056dc060fdf700548a..8770047a4fc5c69fa7b7f0d5251862d31f35063f 100644
 --- a/package.json
 +++ b/package.json
-@@ -25,7 +25,12 @@
+@@ -25,7 +25,13 @@
    },
    "homepage": "https://github.com/kontent-ai/data-ops#readme",
    "exports": {
@@ -12,7 +12,8 @@ index cd865a33e8c7905daab361056dc060fdf700548a..cb52308f4843f2a3d4c5697694b7aa9d
 +    "./internal/sync": "./build/src/modules/sync/sync.js",
 +    "./internal/sync-run": "./build/src/modules/sync/syncRun.js",
 +    "./internal/report": "./build/src/modules/sync/advancedDiff/renderDiffReport.js",
-+    "./internal/patch-operation": "./build/src/modules/sync/types/patchOperation.js"
++    "./internal/patch-operation": "./build/src/modules/sync/types/patchOperation.js",
++    "./internal/client": "./build/src/utils/client.js"
    },
    "dependencies": {
      "@kontent-ai/core-sdk": "^10.12.11",

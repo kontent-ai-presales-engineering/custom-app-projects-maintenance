@@ -27,6 +27,28 @@ export const createVercelBlobKvStore = (namespace: string): KvStore => {
       });
     },
 
+    createIfAbsent: async (key, value) => {
+      try {
+        // Without allowOverwrite, Vercel Blob refuses to write over an existing blob.
+        await put(path(key), JSON.stringify(value), {
+          access: "private",
+          contentType: "application/json",
+          addRandomSuffix: false,
+          allowOverwrite: false,
+        });
+        return true;
+      } catch (error) {
+        // The SDK does not document a specific error class for "already exists", so check.
+        const existing = await get(path(key), { access: "private", useCache: false }).catch(
+          () => null,
+        );
+        if (existing?.statusCode === 200) {
+          return false;
+        }
+        throw error;
+      }
+    },
+
     delete: async (key) => {
       await del(path(key));
     },

@@ -7,8 +7,9 @@ import { createManagementClient } from "./kontent/managementClient.js";
 import { createSubscriptionClient, type SubscriptionClient } from "./kontent/subscriptionClient.js";
 import { createProjectService, type ProjectService } from "./projects/projectService.js";
 import { createVercelBlobKvStore } from "./storage/vercelBlobKvStore.js";
-import { createDataOpsSnapshotter, dataOpsDiffEngine } from "./sync/dataOps.js";
+import { createDataOpsSnapshotter, dataOpsDiffEngine, dataOpsSyncEngine } from "./sync/dataOps.js";
 import { createDiffService, type DiffService } from "./sync/diffService.js";
+import { createSyncService, type SyncService } from "./sync/syncService.js";
 
 /**
  * Production wiring, created once per function instance and reused while it is warm.
@@ -22,6 +23,7 @@ export type Runtime = Readonly<{
   projects: ProjectService;
   diff: DiffService;
   backups: BackupService;
+  sync: SyncService;
 }>;
 
 let cached: Runtime | undefined;
@@ -45,28 +47,31 @@ export const getRuntime = (): Runtime => {
   });
   const kv = createVercelBlobKvStore("model-sync");
   const audit = createAuditLog(kv);
+  const diff = createDiffService({
+    config,
+    projects,
+    env: () => process.env,
+    engine: dataOpsDiffEngine,
+    managementClient,
+    deliveryClient: (environmentId, apiKey) => createDeliveryClient({ environmentId, apiKey }),
+  });
+  const backups = createBackupService({
+    config,
+    projects,
+    env: () => process.env,
+    snapshotter: createDataOpsSnapshotter(),
+    kv,
+    audit,
+  });
   cached = {
     config,
     subscription,
     guard: createAccessGuard(config, subscription),
     audit,
     projects,
-    diff: createDiffService({
-      config,
-      projects,
-      env: () => process.env,
-      engine: dataOpsDiffEngine,
-      managementClient,
-      deliveryClient: (environmentId, apiKey) => createDeliveryClient({ environmentId, apiKey }),
-    }),
-    backups: createBackupService({
-      config,
-      projects,
-      env: () => process.env,
-      snapshotter: createDataOpsSnapshotter(),
-      kv,
-      audit,
-    }),
+    diff,
+    backups,
+    sync: createSyncService({ diff, backups, engine: dataOpsSyncEngine, kv, audit }),
   };
   return cached;
 };

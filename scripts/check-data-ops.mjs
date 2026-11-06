@@ -37,6 +37,7 @@ const internalExports = [
   "./internal/sync-run",
   "./internal/report",
   "./internal/patch-operation",
+  "./internal/client",
 ];
 const missing = internalExports.filter((path) => !(path in (installed.exports ?? {})));
 if (missing.length > 0) {

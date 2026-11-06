@@ -5,6 +5,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** The parsed response body, for responses that carry more than an error. */
+    readonly body: unknown = null,
   ) {
     super(message);
   }
@@ -32,6 +34,7 @@ const toApiError = (status: number, body: unknown) => {
     status,
     error?.code ?? "http_error",
     error?.message ?? `Request failed with status ${status}`,
+    body,
   );
 };
 
@@ -166,6 +169,8 @@ export type DiffResult = Readonly<{
   }>;
   entities: ReadonlyArray<SelectableEntity>;
   generatedAt: string;
+  /** Fingerprint of the diff; sent back to confirm exactly this diff when syncing. */
+  diffHash: string;
   inSync: boolean;
   changes: ReadonlyArray<
     Readonly<{
@@ -230,4 +235,39 @@ export const downloadBackup = async (client: ApiClient, backup: BackupMetadata) 
   link.download = `model-backup-${backup.environmentId}-${backup.id}.json`;
   link.click();
   URL.revokeObjectURL(url);
+};
+
+export type SyncOutcome =
+  | Readonly<{
+      status: "succeeded";
+      backupId: string;
+      operations: number;
+      projectName: string;
+      environmentName: string;
+    }>
+  | Readonly<{ status: "nothing_to_sync" }>
+  | Readonly<{ status: "validation_failed"; backupId: string; problems: ReadonlyArray<string> }>;
+
+export type SyncRequest = Readonly<{
+  environmentId: string;
+  entities: ReadonlyArray<SelectableEntity>;
+  diffHash: string;
+  confirmProjectName: string;
+  confirmDestructive: boolean;
+}>;
+
+/** Runs a sync. A validation failure (HTTP 409 with problems) is returned, not thrown. */
+export const runSync = async (client: ApiClient, request: SyncRequest): Promise<SyncOutcome> => {
+  try {
+    return await client.fetchJson<SyncOutcome>("/api/sync", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  } catch (error) {
+    const body = error instanceof ApiError ? (error.body as { status?: unknown } | null) : null;
+    if (body?.status === "validation_failed") {
+      return body as SyncOutcome;
+    }
+    throw error;
+  }
 };

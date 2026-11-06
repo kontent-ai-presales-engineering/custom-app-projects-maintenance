@@ -46,3 +46,32 @@ describe("Vercel Blob KV store", () => {
     expect(blob.list).toHaveBeenLastCalledWith({ prefix: "ns/audit/", cursor: "c1" });
   });
 });
+
+describe("Vercel Blob KV store createIfAbsent", () => {
+  it("writes without overwrite and reports success", async () => {
+    blob.put.mockResolvedValueOnce({});
+
+    expect(await createVercelBlobKvStore("ns").createIfAbsent("locks/a", { x: 1 })).toBe(true);
+    expect(blob.put).toHaveBeenCalledWith(
+      "ns/locks/a",
+      '{"x":1}',
+      expect.objectContaining({ allowOverwrite: false }),
+    );
+  });
+
+  it("returns false when the blob already exists", async () => {
+    blob.put.mockRejectedValueOnce(new Error("exists"));
+    blob.get.mockResolvedValueOnce({ statusCode: 200, stream: new Response("{}").body });
+
+    expect(await createVercelBlobKvStore("ns").createIfAbsent("locks/a", {})).toBe(false);
+  });
+
+  it("rethrows other failures", async () => {
+    blob.put.mockRejectedValueOnce(new Error("store down"));
+    blob.get.mockResolvedValueOnce(null);
+
+    await expect(createVercelBlobKvStore("ns").createIfAbsent("locks/a", {})).rejects.toThrow(
+      "store down",
+    );
+  });
+});

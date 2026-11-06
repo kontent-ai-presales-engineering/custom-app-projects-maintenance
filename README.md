@@ -4,7 +4,7 @@ A Kontent.ai custom app that keeps the content model of client projects in sync 
 
 Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects. This app runs inside the **master** project, lists every project in the Kontent.ai subscription, and copies content model changes **one way**: from the master to the client projects you choose. It never changes the master.
 
-> **Status: in development.** The access check, the project overview, Test connection, the diff with impact counts and backups are built. Sync is planned. See [Feature status](#feature-status).
+> **Status: in development.** The access check, the project overview, Test connection, the diff with impact counts, backups and sync are built. Phase 1 is complete in code, but has not been tested on a real deployment yet. See [Feature status](#feature-status).
 
 ## Contents
 
@@ -19,6 +19,7 @@ Unity Advisory is moving from one Kontent.ai project with a collection per clien
 - [Client-only additions: the reserved prefix](#client-only-additions-the-reserved-prefix)
 - [Comparing a client with the master](#comparing-a-client-with-the-master)
 - [Backups](#backups)
+- [Syncing a client](#syncing-a-client)
 - [Destructive changes](#destructive-changes)
 - [Limitations](#limitations)
 - [Security](#security)
@@ -66,8 +67,8 @@ All Kontent.ai API calls run in the backend. The browser never sees an API key.
 | Test connection: read-only check that a key is accepted for its environment and can read the content model | Built, not yet tested on Vercel |
 | Diff: compare the master with one client environment, with blocks, destructive changes, impact counts and the full data-ops report | Built, not yet tested on Vercel |
 | Backup of a client's content model: on demand now, and automatically before every sync once sync is built. Download as JSON. | Built, not yet tested on Vercel |
-| Sync to one client environment, with typed confirmation and a re-check just before applying | Planned |
-| Audit log of backups and syncs | Backups are logged. Syncs will be logged when sync is built. |
+| Sync to one client environment: typed confirmation, extra confirmation for destructive changes, re-check of the diff just before applying, automatic backup, data-ops validation, one sync per environment at a time | Built, not yet tested on Vercel |
+| Audit log of backups and syncs | Built (stored in Vercel Blob; there is no screen for it yet) |
 
 Later phases: choosing individual entities to sync, exclusions per client, restore from a backup, a drift dashboard across all clients, rollout to several clients at once, and versioned master releases.
 
@@ -259,6 +260,25 @@ The compare screen has a **Backups** section for the client environment:
 
 Backups are stored in private Vercel Blob storage and kept until you delete them from the Blob store. Every backup is recorded in the audit log, including failed attempts. Backups are only made of client environments; the master is never changed by this app.
 
+## Syncing a client
+
+After comparing, a **Sync** section appears below the result when there is something to sync and nothing is blocked.
+
+1. If the diff has destructive changes, tick the box confirming that content will be removed (it also says how many have unknown impact).
+2. Type the client project name exactly.
+3. Click **Sync to <project>**. Keep the page open; a sync can take several minutes.
+
+What happens:
+
+1. **Re-check.** The diff is recomputed and its fingerprint compared with the one you confirmed. If the master or the client changed in the meantime, the sync stops and asks you to compare again.
+2. **Lock.** Only one sync per client environment runs at a time. A lock older than 15 minutes is treated as abandoned.
+3. **Backup.** The client's content model is backed up (reason: before sync). No backup, no sync.
+4. **Validation.** data-ops checks that removed content types and collections are not in use and that no element changes type. If it refuses, nothing is changed and the problems are listed.
+5. **Apply.** data-ops applies exactly the confirmed changes, for the chosen entities only, to this one environment.
+6. **Audit.** The result is recorded: who, when, target, backup, number of changes, entities, outcome.
+
+If a sync fails partway, some changes may already be applied: data-ops applies changes one by one and cannot roll back. The message names the backup made just before. Compare again to see what is left.
+
 ## Destructive changes
 
 | Change in the master | What happens |
@@ -280,6 +300,8 @@ Counts are made for the **latest** version (Management API) and the **published*
 
 - **Not synced:** roles, webhooks, preview URLs, custom apps and custom element settings. These stay as each client configured them.
 - **Projects are created by hand** in Kontent.ai. No Kontent.ai API creates projects.
+- **A failed sync can leave the client partly updated.** data-ops is not transactional. Restoring from the pre-sync backup is planned for Phase 2.
+- **No live progress during a sync.** data-ops has no progress callback; the screen shows that the sync is running until it finishes.
 - **Restoring a backup restores the model, not the content.** Content in elements removed by a sync does not come back.
 - **Backups do not include live preview settings**, because reading them needs the Manage environments permission.
 - **Backups are not deleted automatically.** Remove old ones from the Vercel Blob store if needed.
@@ -314,6 +336,8 @@ These will be tested on a real deployment, and this README updated:
 - That listing content types requires the Manage content model permission (Test connection relies on it).
 - That the Delivery API items feed honours the `elements` projection and the `system.language` filter as used for published counts.
 - That data-ops can write its snapshot to the function's temporary folder on Vercel, and that the client key's permissions are enough to read workflows and asset folders for a backup.
+- A full sync against a sandbox client: the data-ops apply path is tested with mocks and contract tests only.
+- That a sync fits within the 300-second function limit for your largest client models.
 - The diff and impact counts against real projects. They are tested with mocked APIs and the real data-ops report renderer only.
 
 ## Development
@@ -353,8 +377,9 @@ The diff (and later the sync) uses [`@kontent-ai/data-ops`](https://github.com/k
 The app needs the structured diff, not only the HTML report, to keep client items and count impact. data-ops has this internally but does not export it, so:
 
 - data-ops is pinned to exactly **2.8.1**.
-- `patches/@kontent-ai__data-ops@2.8.1.patch` adds `exports` entries for the internal diff, sync, validation and report modules. It changes no code.
+- `patches/@kontent-ai__data-ops@2.8.1.patch` adds `exports` entries for the internal diff, sync, validation, report and client modules. It changes no code.
 - `server/sync/dataOps.ts` is the only file that imports data-ops.
+- The diff is restricted to the chosen entities before it is shown, hashed and applied (data-ops' own sync does the same), so the diff you confirm is exactly what sync applies. A test checks this for every combination of entities.
 - Contract tests (`server/sync/dataOps.contract.test.ts`) check the entry points and the report renderer, and `pnpm check:data-ops` fails the build if the version changes.
 
 To upgrade data-ops: update the exact version, regenerate the patch with `pnpm patch`, run the tests, compare against a sandbox client, then update `VALIDATED_VERSION` in `scripts/check-data-ops.mjs`.
