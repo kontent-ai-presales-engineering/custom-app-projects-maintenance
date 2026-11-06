@@ -22,34 +22,53 @@ export type ApiIdentity = Readonly<{
 
 export type ApiClient = Readonly<{
   fetchJson: <T>(path: string, init?: RequestInit) => Promise<T>;
+  /** For non-JSON responses such as downloads. Throws ApiError on an error status. */
+  fetchBlob: (path: string) => Promise<Blob>;
 }>;
 
-export const createApiClient = (identity: ApiIdentity): ApiClient => ({
-  fetchJson: async <T>(path: string, init: RequestInit = {}): Promise<T> => {
-    const response = await fetch(path, {
-      ...init,
-      headers: {
-        accept: "application/json",
-        ...(init.body === undefined ? {} : { "content-type": "application/json" }),
-        ...init.headers,
-        "x-app-access-secret": identity.accessSecret,
-        "x-kontent-user-id": identity.userId,
-        "x-kontent-user-email": identity.userEmail,
-      },
-    });
+const toApiError = (status: number, body: unknown) => {
+  const error = (body as ErrorBody | null)?.error;
+  return new ApiError(
+    status,
+    error?.code ?? "http_error",
+    error?.message ?? `Request failed with status ${status}`,
+  );
+};
 
-    const body: unknown = await response.json().catch(() => null);
-    if (!response.ok) {
-      const error = (body as ErrorBody | null)?.error;
-      throw new ApiError(
-        response.status,
-        error?.code ?? "http_error",
-        error?.message ?? `Request failed with status ${response.status}`,
-      );
-    }
-    return body as T;
-  },
-});
+export const createApiClient = (identity: ApiIdentity): ApiClient => {
+  const identityHeaders = {
+    "x-app-access-secret": identity.accessSecret,
+    "x-kontent-user-id": identity.userId,
+    "x-kontent-user-email": identity.userEmail,
+  };
+
+  return {
+    fetchJson: async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+      const response = await fetch(path, {
+        ...init,
+        headers: {
+          accept: "application/json",
+          ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+          ...init.headers,
+          ...identityHeaders,
+        },
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw toApiError(response.status, body);
+      }
+      return body as T;
+    },
+
+    fetchBlob: async (path: string): Promise<Blob> => {
+      const response = await fetch(path, { headers: identityHeaders });
+      if (!response.ok) {
+        throw toApiError(response.status, await response.json().catch(() => null));
+      }
+      return await response.blob();
+    },
+  };
+};
 
 export type KeyStatus = Readonly<{
   configured: boolean;
@@ -174,3 +193,41 @@ export const runDiff = async (
     method: "POST",
     body: JSON.stringify({ environmentId, entities }),
   });
+
+export type BackupMetadata = Readonly<{
+  id: string;
+  environmentId: string;
+  environmentName: string;
+  projectId: string;
+  projectName: string;
+  createdAt: string;
+  createdBy: Readonly<{ userId: string; email: string }>;
+  reason: "manual" | "pre-sync";
+  counts: Readonly<Record<string, number>>;
+}>;
+
+export const listBackups = async (client: ApiClient, environmentId: string) =>
+  (
+    await client.fetchJson<{ backups: ReadonlyArray<BackupMetadata> }>(
+      `/api/backups?environmentId=${encodeURIComponent(environmentId)}`,
+    )
+  ).backups;
+
+export const createBackup = async (client: ApiClient, environmentId: string) =>
+  await client.fetchJson<BackupMetadata>("/api/backups", {
+    method: "POST",
+    body: JSON.stringify({ environmentId }),
+  });
+
+/** Downloads a backup through the API (headers carry the access check) and saves it as a file. */
+export const downloadBackup = async (client: ApiClient, backup: BackupMetadata) => {
+  const blob = await client.fetchBlob(
+    `/api/backup-download?environmentId=${encodeURIComponent(backup.environmentId)}&backupId=${encodeURIComponent(backup.id)}`,
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `model-backup-${backup.environmentId}-${backup.id}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+};

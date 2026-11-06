@@ -8,6 +8,7 @@ import {
   type SelectableEntity,
   selectableEntities,
 } from "../api/client.ts";
+import { BackupPanel } from "./BackupPanel.tsx";
 
 export type DiffTarget = Readonly<{
   environmentId: string;
@@ -265,6 +266,8 @@ export const DiffView = ({ client, target, onBack }: DiffViewProps) => {
         </p>
       ) : null}
       {state.kind === "done" ? <Result result={state.result} /> : null}
+
+      <BackupPanel client={client} environmentId={target.environmentId} />
     </div>
   );
 };

@@ -1,12 +1,13 @@
 import { type AccessGuard, createAccessGuard } from "./access/accessGuard.js";
 import { type AuditLog, createAuditLog } from "./audit/auditLog.js";
+import { type BackupService, createBackupService } from "./backup/backupService.js";
 import { type AppConfig, loadConfig } from "./config.js";
 import { createDeliveryClient } from "./kontent/deliveryClient.js";
 import { createManagementClient } from "./kontent/managementClient.js";
 import { createSubscriptionClient, type SubscriptionClient } from "./kontent/subscriptionClient.js";
 import { createProjectService, type ProjectService } from "./projects/projectService.js";
 import { createVercelBlobKvStore } from "./storage/vercelBlobKvStore.js";
-import { dataOpsDiffEngine } from "./sync/dataOps.js";
+import { createDataOpsSnapshotter, dataOpsDiffEngine } from "./sync/dataOps.js";
 import { createDiffService, type DiffService } from "./sync/diffService.js";
 
 /**
@@ -20,6 +21,7 @@ export type Runtime = Readonly<{
   audit: AuditLog;
   projects: ProjectService;
   diff: DiffService;
+  backups: BackupService;
 }>;
 
 let cached: Runtime | undefined;
@@ -41,11 +43,13 @@ export const getRuntime = (): Runtime => {
     env: () => process.env,
     managementClient,
   });
+  const kv = createVercelBlobKvStore("model-sync");
+  const audit = createAuditLog(kv);
   cached = {
     config,
     subscription,
     guard: createAccessGuard(config, subscription),
-    audit: createAuditLog(createVercelBlobKvStore("model-sync")),
+    audit,
     projects,
     diff: createDiffService({
       config,
@@ -54,6 +58,14 @@ export const getRuntime = (): Runtime => {
       engine: dataOpsDiffEngine,
       managementClient,
       deliveryClient: (environmentId, apiKey) => createDeliveryClient({ environmentId, apiKey }),
+    }),
+    backups: createBackupService({
+      config,
+      projects,
+      env: () => process.env,
+      snapshotter: createDataOpsSnapshotter(),
+      kv,
+      audit,
     }),
   };
   return cached;

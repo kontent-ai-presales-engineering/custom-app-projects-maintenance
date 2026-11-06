@@ -4,7 +4,7 @@ A Kontent.ai custom app that keeps the content model of client projects in sync 
 
 Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects. This app runs inside the **master** project, lists every project in the Kontent.ai subscription, and copies content model changes **one way**: from the master to the client projects you choose. It never changes the master.
 
-> **Status: in development.** The access check, the project overview, Test connection and the diff with impact counts are built. Backup and sync are planned. See [Feature status](#feature-status).
+> **Status: in development.** The access check, the project overview, Test connection, the diff with impact counts and backups are built. Sync is planned. See [Feature status](#feature-status).
 
 ## Contents
 
@@ -18,6 +18,7 @@ Unity Advisory is moving from one Kontent.ai project with a collection per clien
 - [Safety rules](#safety-rules)
 - [Client-only additions: the reserved prefix](#client-only-additions-the-reserved-prefix)
 - [Comparing a client with the master](#comparing-a-client-with-the-master)
+- [Backups](#backups)
 - [Destructive changes](#destructive-changes)
 - [Limitations](#limitations)
 - [Security](#security)
@@ -64,9 +65,9 @@ All Kontent.ai API calls run in the backend. The browser never sees an API key.
 | Project overview: all subscription projects and environments, with key status per environment and the variable to add for a missing key | Built, not yet tested on Vercel |
 | Test connection: read-only check that a key is accepted for its environment and can read the content model | Built, not yet tested on Vercel |
 | Diff: compare the master with one client environment, with blocks, destructive changes, impact counts and the full data-ops report | Built, not yet tested on Vercel |
-| Backup of the client model before every sync | Planned |
+| Backup of a client's content model: on demand now, and automatically before every sync once sync is built. Download as JSON. | Built, not yet tested on Vercel |
 | Sync to one client environment, with typed confirmation and a re-check just before applying | Planned |
-| Audit log of backups and syncs | Storage built, entries added with backup and sync |
+| Audit log of backups and syncs | Backups are logged. Syncs will be logged when sync is built. |
 
 Later phases: choosing individual entities to sync, exclusions per client, restore from a backup, a drift dashboard across all clients, rollout to several clients at once, and versioned master releases.
 
@@ -248,6 +249,16 @@ The result shows:
 - **Warnings**, **All changes** (with the individual operations), and the **client items kept** because they use the reserved prefix.
 - **Show full data-ops report:** the detailed data-ops HTML report of the same (filtered) diff.
 
+## Backups
+
+The compare screen has a **Backups** section for the client environment:
+
+- **Back up now** makes a snapshot of the client's content model: content types, snippets, taxonomies, collections, spaces, languages, workflows and asset folders. It does not include content items or assets.
+- Every backup is listed with when it was made, by whom, why (manual, or before a sync) and how many entries each part has.
+- **Download** saves a backup as a JSON file. It contains the files of a data-ops sync snapshot, the format data-ops can sync back from, which restore (Phase 2) will use.
+
+Backups are stored in private Vercel Blob storage and kept until you delete them from the Blob store. Every backup is recorded in the audit log, including failed attempts. Backups are only made of client environments; the master is never changed by this app.
+
 ## Destructive changes
 
 | Change in the master | What happens |
@@ -270,6 +281,8 @@ Counts are made for the **latest** version (Management API) and the **published*
 - **Not synced:** roles, webhooks, preview URLs, custom apps and custom element settings. These stay as each client configured them.
 - **Projects are created by hand** in Kontent.ai. No Kontent.ai API creates projects.
 - **Restoring a backup restores the model, not the content.** Content in elements removed by a sync does not come back.
+- **Backups do not include live preview settings**, because reading them needs the Manage environments permission.
+- **Backups are not deleted automatically.** Remove old ones from the Vercel Blob store if needed.
 - **Asset folders** cannot be moved (they are deleted and recreated), and cannot be deleted while they contain assets.
 - **Languages** are never deleted, only deactivated and renamed.
 - **Matching is by codename.** External IDs are not synced.
@@ -300,6 +313,7 @@ These will be tested on a real deployment, and this README updated:
 - Vercel function time limits on the plan in use. The diff function is set to 300 seconds; long syncs may need more.
 - That listing content types requires the Manage content model permission (Test connection relies on it).
 - That the Delivery API items feed honours the `elements` projection and the `system.language` filter as used for published counts.
+- That data-ops can write its snapshot to the function's temporary folder on Vercel, and that the client key's permissions are enough to read workflows and asset folders for a backup.
 - The diff and impact counts against real projects. They are tested with mocked APIs and the real data-ops report renderer only.
 
 ## Development
