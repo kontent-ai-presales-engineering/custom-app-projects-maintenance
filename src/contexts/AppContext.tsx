@@ -148,7 +148,5 @@ const createAppContext = <T extends readonly PageType[]>(acceptedPageTypes: T) =
 };
 
 export const { AppContextProvider, useAppContext, useAppConfig } = createAppContext([
-  "itemEditor",
-  "contentInventory",
   "other",
 ] as const);

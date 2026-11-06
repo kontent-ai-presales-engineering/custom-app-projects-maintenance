@@ -3,8 +3,6 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  // basicSsl serves the dev server over HTTPS, which Kontent.ai requires for custom apps.
   plugins: [react(), basicSsl()],
-  server: {
-    https: true,
-  },
 });

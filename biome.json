@@ -7,5 +7,17 @@
         "noVoid": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["server/**", "api/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useImportExtensions": { "level": "error", "options": { "forceJsExtensions": true } }
+          }
+        }
+      }
+    }
+  ]
 }
