@@ -4,7 +4,7 @@ A Kontent.ai custom app that keeps the content model of client projects in sync 
 
 Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects. This app runs inside the **master** project, lists every project in the Kontent.ai subscription, and copies content model changes **one way**: from the master to the client projects you choose. It never changes the master.
 
-> **Status: in development.** The access check and the backend foundation are built. Project overview, diff, backup and sync are planned. See [Feature status](#feature-status).
+> **Status: in development.** The access check, the project overview and Test connection are built. Diff, backup and sync are planned. See [Feature status](#feature-status).
 
 ## Contents
 
@@ -60,9 +60,8 @@ All Kontent.ai API calls run in the backend. The browser never sees an API key.
 | Feature | Status |
 |---|---|
 | Access check: access secret, plus an active master-environment user with an allowed role | Built, not yet tested on Vercel |
-| Master key check: the app shows whether the master's Management API key is configured | Built, not yet tested on Vercel |
-| Project overview: all subscription projects and environments, with key status per environment | Planned (next) |
-| Test connection: check that a configured key works | Planned (next) |
+| Project overview: all subscription projects and environments, with key status per environment and the variable to add for a missing key | Built, not yet tested on Vercel |
+| Test connection: read-only check that a key is accepted for its environment and can read the content model | Built, not yet tested on Vercel |
 | Diff with content impact counts | Planned |
 | Backup of the client model before every sync | Planned |
 | Sync to one client environment, with typed confirmation and a re-check just before applying | Planned |
@@ -146,8 +145,10 @@ Keep the output: it goes into Vercel and into the custom app settings.
 
 Open **Custom apps** > **Content Model Sync** in the master environment. The app checks your access and shows:
 
-- your name and role, and
-- whether the master's Management API key is configured. If it is missing, it shows the exact variable name to add in Vercel.
+- your name and role in the header, and
+- every project in the subscription, master project first, with each environment's key status. For a missing key it shows the exact variable name to add in Vercel.
+
+Click **Test connection** on the master environment to check its key. A successful test shows the project and environment names. Otherwise it says whether the key was rejected (expired, revoked or limited to other environments) or cannot read the content model (missing the Manage content model permission).
 
 If you see an error instead:
 
@@ -170,8 +171,9 @@ If you see an error instead:
    - per environment: `KONTENT_MAPI_KEY_<environment ID with "-" replaced by "_">`, or
    - once for the whole project: `KONTENT_MAPI_KEY_<project ID with "-" replaced by "_">`. A per-environment variable wins if both exist.
 
-   The project overview (planned) will show the exact variable name for every environment that has no key.
+   The project overview shows the exact variable name for every environment that has no key.
 4. **Redeploy** the latest deployment in Vercel. Vercel only applies new environment variables to new deployments. No code change is needed.
+5. **Check the key**: in the app, click **Refresh** (the project list is cached for up to a minute), then **Test connection** on the new environment.
 
 ## Environment variables
 

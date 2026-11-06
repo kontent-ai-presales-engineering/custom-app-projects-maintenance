@@ -1,19 +1,8 @@
 import { z } from "zod";
 
-const baseUrl = "https://manage.kontent.ai/v2";
-const maxRetries = 3;
-const defaultRetryAfterSeconds = 2;
+import { createGetter, KontentApiError, kontentApiBaseUrl } from "./kontentHttp.js";
 
-export class KontentApiError extends Error {
-  override readonly name = "KontentApiError";
-
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+export { KontentApiError };
 
 const roleSchema = z.object({
   id: z.string(),
@@ -75,39 +64,13 @@ export type SubscriptionClientOptions = Readonly<{
   sleep?: (ms: number) => Promise<void>;
 }>;
 
-const defaultSleep = async (ms: number) => {
-  await new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-};
-
 export const createSubscriptionClient = (
   options: SubscriptionClientOptions,
 ): SubscriptionClient => {
-  const fetchFn = options.fetchFn ?? fetch;
-  const sleep = options.sleep ?? defaultSleep;
-  const root = `${baseUrl}/subscriptions/${encodeURIComponent(options.subscriptionId)}`;
-
-  const get = async (path: string, headers: Record<string, string> = {}): Promise<Response> => {
-    for (let attempt = 0; ; attempt += 1) {
-      const response = await fetchFn(`${root}${path}`, {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${options.apiKey}`,
-          accept: "application/json",
-          ...headers,
-        },
-      });
-      if (response.status !== 429 || attempt >= maxRetries) {
-        return response;
-      }
-      const retryAfter = Number(response.headers.get("retry-after"));
-      await sleep(
-        (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : defaultRetryAfterSeconds) *
-          1000,
-      );
-    }
-  };
+  const root = `${kontentApiBaseUrl}/subscriptions/${encodeURIComponent(options.subscriptionId)}`;
+  const getUrl = createGetter(options);
+  const get = async (path: string, headers: Record<string, string> = {}) =>
+    await getUrl(`${root}${path}`, headers);
 
   const fail = (response: Response, what: string) =>
     new KontentApiError(

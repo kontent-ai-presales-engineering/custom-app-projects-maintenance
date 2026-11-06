@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, createApiClient, getMe, type Me, readAccessSecret } from "./api/client.ts";
+import { ProjectOverview } from "./components/ProjectOverview.tsx";
 import { useAppContext } from "./contexts/AppContext.tsx";
 import "./App.css";
 
@@ -92,19 +93,7 @@ const App = () => {
         </span>
       </header>
       <main className="content">
-        <h2>Master environment</h2>
-        <p>
-          <code>{me.master.environmentId}</code>
-        </p>
-        {me.master.key.configured ? (
-          <p>Management API key configured ({me.master.key.source} variable).</p>
-        ) : (
-          <p className="error">
-            No Management API key. Add the environment variable{" "}
-            <code>{me.master.key.variableName}</code> in Vercel and redeploy.
-          </p>
-        )}
-        <p>Client projects, diff and sync are added in the next Phase 1 slices.</p>
+        <ProjectOverview client={client} />
       </main>
     </div>
   );

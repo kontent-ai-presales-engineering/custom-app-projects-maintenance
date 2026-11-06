@@ -74,3 +74,47 @@ export const readAccessSecret = (appConfig: unknown): string | null => {
     ? accessSecret.trim()
     : null;
 };
+
+export type EnvironmentView = Readonly<{
+  id: string;
+  name: string;
+  isMaster: boolean;
+  key: KeyStatus;
+}>;
+
+export type ProjectView = Readonly<{
+  id: string;
+  name: string;
+  isActive: boolean;
+  isMasterProject: boolean;
+  environments: ReadonlyArray<EnvironmentView>;
+}>;
+
+export type ProjectOverviewData = Readonly<{
+  projects: ReadonlyArray<ProjectView>;
+  masterFound: boolean;
+}>;
+
+export type ConnectionResult =
+  | Readonly<{
+      status: "ok";
+      projectName: string;
+      environmentName: string;
+      isProduction: boolean | null;
+      keySource: "environment" | "project";
+    }>
+  | Readonly<{ status: "key_missing"; variableName: string }>
+  | Readonly<{
+      status: "key_rejected" | "no_content_model_access" | "wrong_environment" | "error";
+      variableName: string;
+      message: string;
+    }>;
+
+export const getProjects = async (client: ApiClient) =>
+  await client.fetchJson<ProjectOverviewData>("/api/projects");
+
+export const testConnection = async (client: ApiClient, environmentId: string) =>
+  await client.fetchJson<ConnectionResult>("/api/test-connection", {
+    method: "POST",
+    body: JSON.stringify({ environmentId }),
+  });

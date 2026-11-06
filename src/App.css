@@ -46,3 +46,65 @@ button:disabled {
   cursor: default;
   opacity: 0.6;
 }
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.project {
+  margin: 24px 0;
+}
+
+.project h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.status {
+  font-size: 13px;
+}
+
+.status.ok {
+  color: #1b7f3b;
+}
+
+.status.missing {
+  color: #b00020;
+}
+
+.badge.muted,
+.muted {
+  color: #666;
+}
+
+.badge.warn {
+  background: #fff4e5;
+  color: #8a4b00;
+}
+
+.selectable {
+  user-select: all;
+  word-break: break-all;
+}
+
+output.status {
+  display: block;
+  margin-top: 4px;
+}
