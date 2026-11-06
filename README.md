@@ -2,211 +2,104 @@
 
 A Kontent.ai custom app that keeps the content model of client projects in sync with a master project.
 
-Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects, so this app runs inside the **master** project, lists every project in the Kontent.ai subscription, and pushes model changes **one way**, from the master to client projects. It never syncs from a client to the master.
+Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects. This app runs inside the **master** project, lists every project in the Kontent.ai subscription, and copies content model changes **one way**: from the master to the client projects you choose. It never changes the master.
 
-> **Status: in development.** This README describes the agreed design for Phase 1 and the roadmap. Each feature below is marked with its status. Until a feature is marked **Available**, it does not exist in the code yet.
+> **Status: in development.** The access check and the backend foundation are built. Project overview, diff, backup and sync are planned. See [Feature status](#feature-status).
 
 ## Contents
 
-- [What it does](#what-it-does)
-- [Safety rules](#safety-rules)
-- [How it works](#how-it-works)
-- [Access control](#access-control)
-- [Management API keys](#management-api-keys)
-- [Client extensions: the reserved prefix](#client-extensions-the-reserved-prefix)
-- [Destructive changes and content impact](#destructive-changes-and-content-impact)
-- [Limitations](#limitations)
-- [Requirements](#requirements)
+- [What the app does](#what-the-app-does)
+- [Feature status](#feature-status)
+- [Before you start](#before-you-start)
 - [Setup](#setup)
+- [Adding a client project](#adding-a-client-project)
 - [Environment variables](#environment-variables)
-- [Local development](#local-development)
-- [The data-ops patch](#the-data-ops-patch)
-- [Security model](#security-model)
+- [How access is checked](#how-access-is-checked)
+- [Safety rules](#safety-rules)
+- [Client-only additions: the reserved prefix](#client-only-additions-the-reserved-prefix)
+- [Destructive changes](#destructive-changes)
+- [Limitations](#limitations)
+- [Security](#security)
 - [Not yet verified](#not-yet-verified)
-- [Project structure](#project-structure)
+- [Development](#development)
 
-## What it does
+## What the app does
 
-### Phase 1 (MVP)
+You open the app from **Custom apps** in the master environment. From there you:
 
-| Feature | Description | Status |
-|---|---|---|
-| Access check | Every API call needs the access secret from the custom app parameters and a Kontent.ai user who is active in the master environment with an allowed role. See [Access control](#access-control). | In progress |
-| Project overview | Lists all projects and environments in the Kontent.ai subscription and shows, per environment, whether a Management API key is configured. For a missing key it shows the exact environment variable to add. | Planned |
-| Diff | Compares the master environment with one client environment. Shows added, changed and removed entities with destructive changes highlighted, plus the full data-ops HTML report as optional detail. | Planned |
-| Content impact | For destructive changes, counts the affected content (latest and published versions). Unknown counts are shown as "impact unknown", never as 0. | Planned |
-| Pre-sync backup | Snapshots the target model before every sync. | Planned |
-| Sync | Applies the confirmed diff to **one** target environment after the user types the target project name. Shows progress and the result. | Planned |
-| Audit log | Records every backup and sync: who, when, which target, result. | Planned |
+1. **See all projects in your subscription**, with their environments, and whether the app has a Management API key for each environment.
+2. **Pick a client environment and compare** its content model with the master: added, changed and removed content types, snippets, taxonomies and (optionally) collections, spaces, languages and workflows. Changes that can remove content are highlighted with the number of affected items.
+3. **Sync** after you confirm by typing the client project's name. The app backs up the client's content model first, then applies the changes.
 
-Content types, snippets and taxonomies are synced by default. Collections, spaces, languages and workflows are **opt-in per sync**.
+Every backup and sync is logged with who ran it, when, the target, and the result.
 
-### Phase 2
+Client projects can have their own additions (content types, elements, taxonomy terms and so on) if their codename starts with a reserved prefix, `client_` by default. Sync never removes them.
 
-Selective sync of individual entities, exclusion management per client, and restore from a pre-sync backup.
-
-### Phase 3
-
-Drift dashboard across all clients, batch rollout (dev environments first, then production), versioned master model releases with changelog notes, and onboarding of a new client project.
-
-## Safety rules
-
-These rules are enforced in the backend, not only in the UI:
-
-- **One way only.** The master environment, and every environment in the master project, can never be a sync target.
-- **Diff first.** Nothing is written without a diff the user has confirmed.
-- **Explicit confirmation.** The user must type the target project name. Destructive changes and unknown impact need an additional confirmation.
-- **No silent drift between confirm and run.** The diff is recomputed when the sync starts and compared with a hash of the confirmed diff. If anything changed, the sync aborts and asks for confirmation again.
-- **One target at a time.** A sync writes to exactly one environment. Writes to the same environment never run in parallel.
-- **Backup first.** The target model is snapshotted before any change is applied.
-- **Client extensions are protected.** See [the reserved prefix](#client-extensions-the-reserved-prefix).
-
-## How it works
+How it fits together:
 
 ```
 Kontent.ai (master project, signed-in user)
-  └─ Custom app (this React app, full screen, iframe)
-        │  access secret + Kontent.ai user ID and email (from the custom app context)
+  └─ Custom app (this React app, full screen)
+        │  access secret + Kontent.ai user ID and email
         ▼
 Vercel Functions (/api/*)
-  ├─ access check: secret, then user and role via the Subscription API
-  ├─ Management API keys: read from environment variables per environment
-  ├─ audit log, backups, job state: Vercel Blob (private)
-  └─ diff, backup, sync: @kontent-ai/data-ops
+  ├─ access check (secret, then user and role via the Subscription API)
+  ├─ Management API keys from Vercel environment variables
+  ├─ audit log and backups in Vercel Blob (private)
+  └─ diff and sync with @kontent-ai/data-ops
         │
         ├─ Subscription API (read-only): projects, environments, users
         ├─ Management API: master (read), client environments (read/write)
-        └─ Delivery API: published content counts (impact checks)
+        └─ Delivery API: published content counts
 ```
 
-All Kontent.ai API calls and all data-ops calls run in the backend. The browser never sees an API key.
+All Kontent.ai API calls run in the backend. The browser never sees an API key.
 
-data-ops identifies the source and the target by environment ID, each with its own API key. Environment IDs are unique across projects, so syncing from the master project to a client project works the same way as syncing between environments of one project.
+## Feature status
 
-### Sync pipeline
-
-The diff and apply logic comes from [`@kontent-ai/data-ops`](https://github.com/kontent-ai/data-ops), so data-ops is the single source of truth for both. This app only **removes** operations from the data-ops diff and never creates its own.
-
-1. **Pin the master.** Snapshot the master model and store it. The same snapshot is used for diff and sync.
-2. **Diff.** data-ops computes the structured diff between the pinned snapshot and the target, for the chosen entity types only.
-3. **Filter.** Remove operations that would touch client extensions (reserved prefix).
-4. **Check.** Classify destructive changes, count content impact, and apply the blocking rules.
-5. **Report.** Show the summary and the data-ops HTML report, both generated from the filtered diff.
-6. **Confirm.** The user confirms the target project name and any destructive changes.
-7. **Re-diff.** Recompute steps 2 to 4 and compare with the hash of the confirmed diff. Abort if they differ.
-8. **Backup.** Snapshot the target model.
-9. **Validate and apply.** Run data-ops validation, then data-ops applies the filtered diff.
-
-## Access control
-
-Kontent.ai shows the custom app only to signed-in users whose role is allowed in the custom app settings. That protects the user interface, but the Vercel Functions are public URLs that anyone could call directly. The custom app context (user ID, email, roles) is read in the browser and Kontent.ai does not sign it, so the backend cannot take it on trust.
-
-Every API request is therefore checked in the backend:
-
-1. **Access secret.** The request must carry the secret from the custom app **Parameters {JSON}** (`{"accessSecret": "..."}`). The backend compares it with `APP_ACCESS_SECRET` in constant time. A wrong secret is rejected before any Kontent.ai API is called.
-2. **User.** The request carries the Kontent.ai user ID and email from the custom app context. The backend looks the user up with the Subscription API and requires that:
-   - the user exists and the email matches,
-   - the user is **active in the master environment**, and
-   - the user has an allowed role there (`ALLOWED_ROLES`, default `project-manager`; custom roles by role ID).
-
-User lookups are cached for 60 seconds per function instance. A failed Subscription API call is not cached.
-
-The access secret is visible to everyone who can open the app (it is part of the custom app context). It only unlocks this app's API, never a Kontent.ai API key. Rotate it by changing `APP_ACCESS_SECRET` in Vercel and the custom app parameters, then redeploying.
-
-## Management API keys
-
-No Kontent.ai API returns Management API keys, so they are configured as environment variables in Vercel, one per environment:
-
-```
-KONTENT_MAPI_KEY_<environment ID with "-" replaced by "_">
-```
-
-For example, environment `3f2a9c1e-8b7d-4e2f-9a6c-1d2e3f4a5b6c` uses `KONTENT_MAPI_KEY_3f2a9c1e_8b7d_4e2f_9a6c_1d2e3f4a5b6c`.
-
-- **Project fallback.** A Management API key belongs to a project and can cover several environments. Instead of one variable per environment you can set `KONTENT_MAPI_KEY_<project ID with "-" replaced by "_">`. The environment variable wins if both exist.
-- **Case.** Variable names are matched case-insensitively.
-- **No code change for a new client.** The backend reads the variables on every request. The project overview shows every environment without a key, with the exact variable name to add.
-- **Redeploy after adding a key.** Vercel applies environment variable changes to new deployments only. After adding a key, redeploy the latest deployment (no code change needed).
-- **Never in Parameters {JSON}.** The custom app parameters are sent to the browser. Keys must only be in Vercel environment variables.
-
-## Client extensions: the reserved prefix
-
-Client-specific additions use a reserved codename prefix, `client_` by default (configurable).
-
-The prefix applies to:
-
-- content types, snippets and taxonomy groups
-- elements inside master types and snippets (for snippet elements, the part after `<snippet>__` is checked)
-- taxonomy terms
-- multiple choice options
-- collections, spaces and asset folders
-
-It does **not** apply to workflow steps.
-
-Rules:
-
-- **The master may never use the prefix.** A master snapshot that contains a prefixed codename is refused.
-- **Prefixed removals are filtered out automatically.** Sync never deletes or removes anything with the prefix.
-- **The sync is blocked** if a prefixed removal is still present after filtering.
-- **Content groups:** the sync is blocked if it would remove a content group that still contains elements. Move or remove those elements in the master first.
-
-## Destructive changes and content impact
-
-| Change | Behaviour |
+| Feature | Status |
 |---|---|
-| Master-owned element removed while it holds content in the client | Destructive. Shows the number of affected variants. Requires explicit confirmation. |
-| Content type removed while items use it | Blocked by data-ops validation. |
-| Element type changed | Blocked by data-ops validation. |
-| Snippet or taxonomy group removed | Destructive. Requires confirmation. |
-| Taxonomy term or multiple choice option removed | Destructive. Shows affected variants. Requires confirmation. |
-| Language deactivated or default language codename changed | Destructive. Shows variants per language. Requires confirmation. |
-| Workflow step removed while variants are in it | **Blocked** until the Management API behaviour has been verified on a sandbox. Allowed when no variants are in the step. |
-| Workflows synced | Warning: role limitations on workflows are lost (a data-ops limitation). |
+| Access check: access secret, plus an active master-environment user with an allowed role | Built, not yet tested on Vercel |
+| Master key check: the app shows whether the master's Management API key is configured | Built, not yet tested on Vercel |
+| Project overview: all subscription projects and environments, with key status per environment | Planned (next) |
+| Test connection: check that a configured key works | Planned (next) |
+| Diff with content impact counts | Planned |
+| Backup of the client model before every sync | Planned |
+| Sync to one client environment, with typed confirmation and a re-check just before applying | Planned |
+| Audit log of backups and syncs | Storage built, entries added with backup and sync |
 
-Impact counts cover both the latest version (Management API) and the published version (Delivery API). If a count cannot be determined, the UI shows **impact unknown** and requires confirmation.
+Later phases: choosing individual entities to sync, exclusions per client, restore from a backup, a drift dashboard across all clients, rollout to several clients at once, and versioned master releases.
 
-## Limitations
+## Before you start
 
-What this app cannot do, mostly because of data-ops or the Kontent.ai APIs:
+You need:
 
-- **Not synced:** roles, webhooks, preview URLs, custom apps and custom element settings. These per-client settings are never touched.
-- **No projects created through the API.** A new client project is created by hand in Kontent.ai. It then appears in the project overview automatically.
-- **Environments can only be created by cloning** within a project (Phase 3 onboarding).
-- **Restore covers the model structure, not the content.** Content in elements that a sync removed is not brought back.
-- **Asset folders** cannot be moved (data-ops deletes and recreates them) and cannot be deleted while they contain assets.
-- **Languages** are never deleted. data-ops deactivates them and renames them to a random 8-character name and codename.
-- **External IDs** are not synced. Entities are matched by codename.
-- **Rate limits:** the Management API allows 10 requests per second and 400 per minute per environment. Large models take time to sync.
-
-## Requirements
-
-- Node.js 22 or later (required by data-ops)
-- pnpm 10
-- A Vercel project with a **Vercel Blob** store connected (private access)
-- Kontent.ai:
-  - a master project
-  - a Management API key per project (master and each client)
-  - a Subscription API key (requires a subscription admin)
-  - optionally, a Delivery API key with secure access for environments that have secure access enabled
+- **Kontent.ai**
+  - The master project, and the client projects in the same subscription.
+  - Subscription admin rights, to create a Subscription API key.
+  - Project manager rights in each project, to create its Management API key.
+- **Vercel**: a project for this repository, with permission to set environment variables and create a Blob store. Check that your plan allows long-running functions; a large sync can take minutes because of Kontent.ai rate limits.
+- **For local development**: Node.js 22 or later and pnpm 10.
 
 ## Setup
 
-### 1. Install
+### 1. Collect the IDs
 
-```bash
-pnpm install
-```
-
-### 2. Create the Kontent.ai API keys
-
-In each project, go to **Project settings > API keys > Management API keys > Create Management API key**. Limit each key to the environments the app needs. Set an expiry date, and note it: the maximum is 2 years.
-
-| Key | Permissions |
+| Value | Where to find it |
 |---|---|
-| Master project | Manage content model, Manage environment settings, Read content, Read assets. Add Manage environments only if you sync live preview. The app only reads from the master. |
-| Each client project | Manage content model, Manage environment settings, Read content, Read assets, Create, edit, and delete assets (for asset folders). Add Manage environments for live preview sync and Phase 3 onboarding. |
-| Subscription API key | From **Subscriptions > your subscription > Subscription API**. This key can activate and deactivate users across all projects. The app only ever sends GET requests with it. |
-| Delivery API key (optional) | Secure access, for client environments with secure access enabled. Used for published content counts. |
+| Subscription ID | Kontent.ai > **Subscriptions** > your subscription > **Subscription API** |
+| Master environment ID | In the master environment: **Environment settings** > **General** > Environment ID |
+
+### 2. Create the API keys
+
+**Subscription API key.** Kontent.ai > **Subscriptions** > your subscription > **Subscription API**. The app uses it to list projects and to check users. It only ever sends GET requests with it, but the key itself can activate and deactivate users, so store it only in Vercel.
+
+**Management API key for the master.** In the master project: **Project settings** > **API keys** > **Management API keys** > **Create Management API key**.
+
+- Permissions: Manage content model, Manage environment settings, Read content, Read assets. The app only reads from the master.
+- Limit the key to the master environment. Set an expiry date and note it (maximum 2 years).
+
+Client keys are covered in [Adding a client project](#adding-a-client-project).
 
 ### 3. Generate the access secret
 
@@ -214,119 +107,208 @@ In each project, go to **Project settings > API keys > Management API keys > Cre
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
+Keep the output: it goes into Vercel and into the custom app settings.
+
 ### 4. Deploy to Vercel
 
-1. Create a Vercel project from this repository. `vercel.json` sets the build and the `Content-Security-Policy: frame-ancestors https://app.kontent.ai` header.
-2. Under **Storage**, create a **Blob** store with private access and connect it to the project. This sets `BLOB_READ_WRITE_TOKEN`.
-3. Under **Settings > Environment Variables**, add the [environment variables](#environment-variables), including `APP_ACCESS_SECRET` and one `KONTENT_MAPI_KEY_...` per environment (at least the master).
-4. Deploy.
+1. Create a Vercel project from this repository. `vercel.json` already sets the build and the header that only lets Kontent.ai embed the app.
+2. Go to **Storage** > **Create** > **Blob**, choose **private** access, and connect the store to the project. This adds `BLOB_READ_WRITE_TOKEN` automatically.
+3. Go to **Settings** > **Environment Variables** and add:
 
-### 5. Register the custom app in Kontent.ai (master environment only)
+   | Variable | Value |
+   |---|---|
+   | `KONTENT_SUBSCRIPTION_ID` | Subscription ID from step 1 |
+   | `KONTENT_SUBSCRIPTION_API_KEY` | Subscription API key from step 2 |
+   | `KONTENT_MASTER_ENVIRONMENT_ID` | Master environment ID from step 1 |
+   | `KONTENT_MAPI_KEY_<master environment ID>` | Master Management API key. Replace the hyphens in the ID with underscores, for example `KONTENT_MAPI_KEY_3f2a9c1e_8b7d_4e2f_9a6c_1d2e3f4a5b6c` |
+   | `APP_ACCESS_SECRET` | Access secret from step 3 |
+   | `ALLOWED_ROLES` | Optional. Who may use the app, see [How access is checked](#how-access-is-checked). Default: `project-manager` |
 
-1. In the master environment, go to **Environment settings > Custom apps > Create new custom app**.
+4. Deploy. Note the production URL.
+
+### 5. Register the custom app in the master environment
+
+1. In the master environment, go to **Environment settings** > **Custom apps** > **Create new custom app**.
 2. **App name:** for example, Content Model Sync.
-3. **Hosted code URL (HTTPS):** your Vercel production URL.
-4. **Roles that can work with this app:** the roles that should see the app. Keep this in line with `ALLOWED_ROLES`: users with other roles see the app but are refused by the backend.
+3. **Hosted code URL (HTTPS):** the Vercel production URL.
+4. **Roles that can work with this app:** the same roles as `ALLOWED_ROLES`. Users with other roles would see the app but be refused.
 5. **Display mode:** Full screen.
-6. **Parameters {JSON}:** `{"accessSecret": "<the value of APP_ACCESS_SECRET>"}`. Nothing else, and never an API key.
+6. **Parameters {JSON}:**
+
+   ```json
+   {"accessSecret": "<the access secret from step 3>"}
+   ```
+
+   Nothing else goes here, and never an API key: Kontent.ai sends these parameters to the browser.
 7. Click **Save changes**.
 
-### 6. First run
+### 6. Check it works
 
-1. Open the app from **Custom apps** in Kontent.ai. It checks your access and shows whether the master key is configured.
-2. Open the project overview. For each client environment marked **Key missing**, add the variable it shows in Vercel, then redeploy.
-3. Run your first diff.
+Open **Custom apps** > **Content Model Sync** in the master environment. The app checks your access and shows:
+
+- your name and role, and
+- whether the master's Management API key is configured. If it is missing, it shows the exact variable name to add in Vercel.
+
+If you see an error instead:
+
+| Message | Cause |
+|---|---|
+| This custom app is not configured | `accessSecret` is missing from the custom app parameters |
+| The access secret ... is wrong | `accessSecret` and `APP_ACCESS_SECRET` differ, or the deployment predates the variable (redeploy) |
+| This user is not an active user of the master environment | Your account is not active in the master environment |
+| Your role in the master environment does not allow using this app | Your role is not in `ALLOWED_ROLES` |
+| User details do not match | The email from Kontent.ai differs from the Subscription API record for that user ID |
+| The server returned an error | Usually a missing or invalid environment variable. The Vercel function log names it. |
+
+## Adding a client project
+
+1. **Create the project** in Kontent.ai, in the same subscription. The app finds it through the Subscription API; there is nothing to register.
+2. **Create a Management API key** in the client project: **Project settings** > **API keys** > **Management API keys**.
+   - Permissions: Manage content model, Manage environment settings, Read content, Read assets, and Create, edit, and delete assets (needed for asset folders).
+   - Limit it to the environments the app should sync. Set an expiry date and note it.
+3. **Add the key in Vercel** as an environment variable:
+   - per environment: `KONTENT_MAPI_KEY_<environment ID with "-" replaced by "_">`, or
+   - once for the whole project: `KONTENT_MAPI_KEY_<project ID with "-" replaced by "_">`. A per-environment variable wins if both exist.
+
+   The project overview (planned) will show the exact variable name for every environment that has no key.
+4. **Redeploy** the latest deployment in Vercel. Vercel only applies new environment variables to new deployments. No code change is needed.
 
 ## Environment variables
 
-All variables are server-side and only read by the Vercel Functions. The frontend has no build-time variables.
+All variables are read by the backend only. The frontend has none.
 
 | Variable | Required | Description |
 |---|---|---|
 | `KONTENT_SUBSCRIPTION_ID` | Yes | Kontent.ai subscription ID |
 | `KONTENT_SUBSCRIPTION_API_KEY` | Yes | Subscription API key. Used for GET requests only. |
-| `KONTENT_MASTER_ENVIRONMENT_ID` | Yes | Master environment ID (GUID). Never accepted as a sync target. |
-| `KONTENT_MAPI_KEY_<id>` | Per environment | Management API key, see [Management API keys](#management-api-keys) |
+| `KONTENT_MASTER_ENVIRONMENT_ID` | Yes | Master environment ID. It can never be a sync target. |
+| `KONTENT_MAPI_KEY_<id>` | Per environment or project | Management API key. `<id>` is the environment or project ID with hyphens replaced by underscores. Names are matched case-insensitively. |
 | `APP_ACCESS_SECRET` | Yes | At least 32 characters. Same value as `accessSecret` in the custom app parameters. |
 | `ALLOWED_ROLES` | No | Comma-separated role codenames or role IDs in the master environment. Default: `project-manager` |
-| `CLIENT_PREFIX` | No | Reserved prefix for client extensions. Default: `client_` |
-| `BLOB_READ_WRITE_TOKEN` | Yes | Set by Vercel when a Blob store is connected |
+| `CLIENT_PREFIX` | No | Reserved codename prefix for client-only additions. Default: `client_` |
+| `BLOB_READ_WRITE_TOKEN` | Yes | Added by Vercel when you connect the Blob store |
 
-A request fails with a server error if a required variable is missing or invalid. The function log names the variable, never its value. `.env.example` lists the same variables for local development.
+If a required variable is missing or invalid, API calls fail and the Vercel function log names the variable (never its value). [.env.example](.env.example) lists the same variables.
 
-## Local development
+## How access is checked
+
+Kontent.ai only shows the app to signed-in users with an allowed role. That protects the screen, but the app's backend is a public URL that anyone could call directly. The user details the app gets from Kontent.ai are not signed, so the backend checks every request itself:
+
+1. **Access secret.** The request must carry the `accessSecret` from the custom app parameters, and it must equal `APP_ACCESS_SECRET`. A wrong secret is refused before any Kontent.ai API is called.
+2. **User and role.** The backend looks up the Kontent.ai user with the Subscription API. The user must exist, the email must match, the user must be **active in the master environment**, and must have a role listed in `ALLOWED_ROLES` there.
+
+Roles in `ALLOWED_ROLES`:
+
+- The Project manager role has the codename `project-manager` (the default).
+- Custom roles have no codename. Use their role ID.
+
+User lookups are cached for 60 seconds. To rotate the access secret, change `APP_ACCESS_SECRET` in Vercel and `accessSecret` in the custom app parameters, then redeploy.
+
+## Safety rules
+
+These rules are enforced in the backend, not only in the screen:
+
+- **One way only.** The master environment, and every environment in the master project, can never be a sync target.
+- **Compare first.** Nothing is written without a diff the user has confirmed.
+- **Explicit confirmation.** The user types the target project name. Changes that remove content, or whose impact cannot be counted, need an additional confirmation.
+- **No surprises between confirm and run.** The diff is recomputed just before applying. If anything changed since the user confirmed, the sync stops and asks again.
+- **One target at a time.** A sync writes to exactly one environment, and never two syncs to the same environment at once.
+- **Backup first.** The client's content model is backed up before any change.
+
+## Client-only additions: the reserved prefix
+
+Anything a client adds on top of the master model must have a codename starting with the reserved prefix (`client_` by default, set with `CLIENT_PREFIX`). This applies to:
+
+- content types, snippets and taxonomy groups
+- elements inside master content types and snippets (for snippet elements, the part after `<snippet>__` is checked)
+- taxonomy terms and multiple choice options
+- collections, spaces and asset folders
+
+It does not apply to workflow steps.
+
+Rules:
+
+- **The master may never use the prefix.** A master model that contains it is refused.
+- **Sync never removes prefixed items.** Removals of prefixed items are dropped from the diff, and the sync is blocked if one remains.
+- **Content groups:** a sync that would remove a content group that still has elements is blocked. Move or remove those elements in the master first.
+
+## Destructive changes
+
+| Change in the master | What happens |
+|---|---|
+| Element removed that holds content in the client | Shows the number of affected items. Needs confirmation. |
+| Content type removed while items use it | Blocked |
+| Element type changed | Blocked |
+| Snippet or taxonomy group removed | Needs confirmation |
+| Taxonomy term or multiple choice option removed | Shows the number of affected items. Needs confirmation. |
+| Language deactivated, or default language codename changed | Shows items per language. Needs confirmation. |
+| Workflow step removed while items are in it | Blocked until the behaviour has been tested. Allowed when the step is empty. |
+| Workflows synced | Warning: role limits on workflows are lost |
+
+Counts include both the latest and the published version of each item. If a count cannot be determined, the app shows **impact unknown** and requires confirmation; it never shows 0 for an unknown count.
+
+## Limitations
+
+- **Not synced:** roles, webhooks, preview URLs, custom apps and custom element settings. These stay as each client configured them.
+- **Projects are created by hand** in Kontent.ai. No Kontent.ai API creates projects.
+- **Restoring a backup restores the model, not the content.** Content in elements removed by a sync does not come back.
+- **Asset folders** cannot be moved (they are deleted and recreated), and cannot be deleted while they contain assets.
+- **Languages** are never deleted, only deactivated and renamed.
+- **Matching is by codename.** External IDs are not synced.
+- **Rate limits:** the Management API allows 10 requests per second and 400 per minute per environment, so large models take time to sync.
+
+## Security
+
+- **API keys** are only in Vercel environment variables. They are never sent to the browser, logged, or written to Vercel Blob.
+- **Every API call** is checked for the access secret and an allowed master-environment user.
+- **The Subscription API key** is only used for GET requests.
+- **Stored data** (audit log, backups) is in private Vercel Blob storage.
+- **Embedding** is limited to `https://app.kontent.ai`.
+
+Remaining risks:
+
+- **The access secret and the user details are not proof of identity.** Anyone who can open the app can read the secret. Someone with the secret and the internal user ID and email of an allowed user could call the backend directly. Keep the allowed roles narrow and rotate the secret when someone leaves.
+- **Any allowed user can sync to any client environment that has a key.**
+- **Anyone with access to the Vercel project's environment variables has every Management API key.** Limit Vercel team access.
+- **Management API keys expire** (maximum 2 years). Track the expiry dates.
+
+## Not yet verified
+
+These will be tested on a real deployment, and this README updated:
+
+- That the user ID from the custom app context is the ID the Subscription API uses. The email is cross-checked as well. If they differ, every user is refused until the lookup switches to email.
+- Subscription admins without a role in the master environment are refused. It is not yet confirmed how they appear in the Subscription API.
+- What the Management API does with items in a removed workflow step (blocked until tested).
+- Vercel function time limits on the plan in use, for long syncs.
+
+## Development
 
 ```bash
+pnpm install
 pnpm dev          # frontend only, https://localhost:5173 (self-signed certificate)
-vercel dev        # frontend + functions (requires the Vercel CLI and a linked project)
+vercel dev        # frontend and API (requires the Vercel CLI and a linked project)
 ```
 
-Kontent.ai only loads custom apps over HTTPS. To open your local app inside Kontent.ai, register a separate custom app in a non-production environment that points to a secure tunnel to your machine (for example ngrok).
-
-### Scripts
+Kontent.ai only loads custom apps over HTTPS. To try a local version inside Kontent.ai, register a second custom app in a non-production environment that points to a secure tunnel (for example ngrok).
 
 | Command | Description |
 |---|---|
 | `pnpm build` | Type-check and build |
-| `pnpm test` | Unit tests (Vitest), with Kontent.ai APIs, Vercel Blob and data-ops mocked |
+| `pnpm test` | Unit tests (Vitest), with Kontent.ai APIs and Vercel Blob mocked |
 | `pnpm lint` | ESLint |
 | `pnpm biome:check` | Biome lint and format check |
-| `pnpm check:data-ops` | Planned. Fails if the installed data-ops version differs from the validated version |
 
 CI runs Biome, ESLint, the tests and the build.
 
-## The data-ops patch
-
-This app uses four data-ops functions that are part of the package but not part of its public API: the structured diff, diff validation, applying a diff, and the HTML report. They are exposed through a small `pnpm patch` that only adds `exports` entries to the data-ops `package.json`. No data-ops code is changed.
-
-Safeguards:
-
-- data-ops is pinned to an **exact** version in `package.json`.
-- The patch lives in `patches/` and is covered by contract tests on the diff format.
-- `pnpm check:data-ops` fails the build when the installed version differs from the validated version.
-- An upstream request asks data-ops to make these functions public. Once released, the patch will be removed.
-
-### Upgrading data-ops
-
-1. Update the exact version in `package.json` and regenerate the patch with `pnpm patch`.
-2. Run `pnpm test`. The contract tests must pass, including the test that diff and sync produce the same operations for each entity combination.
-3. Run a diff and sync against a sandbox client environment.
-4. Update the validated version used by `pnpm check:data-ops`.
-
-## Security model
-
-- **API keys** are only in Vercel environment variables. They are never sent to the browser, never logged and never stored in Vercel Blob.
-- **Every API request** is checked for the access secret and for an active master-environment user with an allowed role (see [Access control](#access-control)).
-- **The Subscription API key** is only used for GET requests: the client has no way to send anything else.
-- **Storage** (audit log, backups, job state) uses private Vercel Blob storage.
-- **Framing** is limited to `https://app.kontent.ai`.
-
-Remaining risks:
-
-- **The access secret and the user ID are not proof of identity.** Anyone who can open the app can read the secret. Someone who has the secret and knows the internal user ID and email of an allowed user can call the API directly. Keep the set of people who can open the app small and rotate the secret when someone leaves.
-- **Any allowed user can sync to any client environment that has a key.**
-- **Anyone with access to the Vercel project's environment variables** has every Management API key. Limit Vercel team access.
-- **Kontent.ai API keys expire** (maximum 2 years for Management API keys). Track expiry dates.
-
-## Not yet verified
-
-These points will be tested during Phase 1, and this README will be updated with the results:
-
-- That the `userId` from the custom app context is the same ID the Subscription API uses for users (the email is cross-checked as well)
-- How subscription admins without a role in the master environment appear in the Subscription API (they are currently refused)
-- What the Management API does with variants in a workflow step that is removed (blocked until verified)
-- Vercel Function duration limits on the plan in use, for long syncs
-- Whether data-ops fits comfortably within the Vercel Function size limit
-
-## Project structure
+Project layout:
 
 ```
-src/                  React custom app (frontend)
-api/                  Vercel Functions (one file per endpoint)
-server/               Service layer: access check, config, Kontent.ai clients, keys, storage, audit
-patches/              Planned: pnpm patch for @kontent-ai/data-ops
-scripts/              Planned: build checks (data-ops version guard)
+src/        React custom app
+api/        Vercel Functions, one file per endpoint
+server/     Backend logic: access check, config, Kontent.ai clients, keys, storage, audit log
 ```
+
+The diff and sync will use [`@kontent-ai/data-ops`](https://github.com/kontent-ai/data-ops), which already syncs content models between environments by ID and key. Environment IDs are unique across projects, so syncing from the master project to a client project works the same way.
 
 Built on the [Kontent.ai custom app starter for React](https://github.com/kontent-ai/custom-app-starter-react) and the [Custom app SDK](https://github.com/kontent-ai/custom-app-sdk-js).
 
@@ -335,7 +317,6 @@ Built on the [Kontent.ai custom app starter for React](https://github.com/konten
 - [Kontent.ai custom apps](https://kontent.ai/learn/docs/custom-apps)
 - [Management API](https://kontent.ai/learn/docs/apis/management-api-v2/introduction)
 - [Subscription API](https://kontent.ai/learn/docs/apis/subscription-api/introduction)
-- [data-ops](https://github.com/kontent-ai/data-ops)
 - [Vercel Blob private storage](https://vercel.com/docs/vercel-blob/private-storage)
 
 ## License
