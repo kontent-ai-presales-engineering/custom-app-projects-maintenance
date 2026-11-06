@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, createApiClient, getMe, type Me, readAccessSecret } from "./api/client.ts";
+import { type DiffTarget, DiffView } from "./components/DiffView.tsx";
 import { ProjectOverview } from "./components/ProjectOverview.tsx";
 import { useAppContext } from "./contexts/AppContext.tsx";
 import "./App.css";
@@ -35,6 +36,7 @@ const App = () => {
     [accessSecret, context.userId, context.userEmail],
   );
   const [state, setState] = useState<State>({ kind: "loading" });
+  const [diffTarget, setDiffTarget] = useState<DiffTarget | null>(null);
 
   useEffect(() => {
     if (client === null) {
@@ -93,7 +95,11 @@ const App = () => {
         </span>
       </header>
       <main className="content">
-        <ProjectOverview client={client} />
+        {diffTarget === null ? (
+          <ProjectOverview client={client} onCompare={setDiffTarget} />
+        ) : (
+          <DiffView client={client} target={diffTarget} onBack={() => setDiffTarget(null)} />
+        )}
       </main>
     </div>
   );

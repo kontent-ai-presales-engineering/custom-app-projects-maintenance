@@ -34,6 +34,9 @@ jobs:
       - name: Run ESLint
         run: pnpm lint
 
+      - name: Check data-ops version and patch
+        run: pnpm check:data-ops
+
       - name: Run tests
         run: pnpm test
 

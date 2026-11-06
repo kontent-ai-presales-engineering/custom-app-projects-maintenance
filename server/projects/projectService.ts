@@ -50,8 +50,19 @@ export class UnknownEnvironmentError extends HttpError {
   }
 }
 
+export type LocatedEnvironment = Readonly<{
+  environmentId: string;
+  environmentName: string;
+  projectId: string;
+  projectName: string;
+  /** True for every environment of the project that contains the master environment. */
+  isMasterProject: boolean;
+}>;
+
 export type ProjectService = Readonly<{
   overview: () => Promise<ProjectOverview>;
+  /** Finds an environment in the subscription. Throws UnknownEnvironmentError otherwise. */
+  locate: (environmentId: string) => Promise<LocatedEnvironment>;
   testConnection: (environmentId: string) => Promise<ConnectionResult>;
 }>;
 
@@ -98,6 +109,21 @@ export const createProjectService = (deps: ProjectServiceDeps): ProjectService =
   };
 
   return {
+    locate: async (rawEnvironmentId) => {
+      const environmentId = rawEnvironmentId.trim().toLowerCase();
+      const found = findEnvironment(await subscriptionProjects(), environmentId);
+      if (found === null) {
+        throw new UnknownEnvironmentError();
+      }
+      return {
+        environmentId,
+        environmentName: found.environment.name,
+        projectId: found.project.id,
+        projectName: found.project.name,
+        isMasterProject: found.project.environments.some((e) => e.id.toLowerCase() === master),
+      };
+    },
+
     overview: async () => {
       const env = deps.env();
       const projects = await subscriptionProjects();

@@ -62,6 +62,13 @@ export const resolveManagementKey = (
   return null;
 };
 
+/** Optional Delivery API key, only needed when secure access is enabled for the environment. */
+export const deliveryKeyVariableName = (environmentId: string): string =>
+  `KONTENT_DELIVERY_KEY_${environmentId.trim().toLowerCase().replaceAll("-", "_")}`;
+
+export const resolveDeliveryKey = (env: Env, environmentId: string): string | null =>
+  lookup(env, deliveryKeyVariableName(environmentId)) ?? null;
+
 export const managementKeyStatus = (
   env: Env,
   ids: Readonly<{ environmentId: string; projectId?: string | undefined }>,

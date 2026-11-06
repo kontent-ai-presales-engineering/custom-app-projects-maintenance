@@ -27,17 +27,25 @@ const projects: ReadonlyArray<SubscriptionProject> = [
   },
 ];
 
-const okClient = (overrides: Partial<ManagementClient> = {}): ManagementClient => ({
-  getEnvironmentInfo: async () =>
-    Promise.resolve({
-      id: clientEnvId,
-      name: "Client A",
-      environment: "Production",
-      is_production: true,
-    }),
-  checkContentModelAccess: async () => Promise.resolve(),
-  ...overrides,
-});
+const okClient = (overrides: Partial<ManagementClient> = {}): ManagementClient => {
+  const base: ManagementClient = {
+    getEnvironmentInfo: async () =>
+      Promise.resolve({
+        id: clientEnvId,
+        name: "Client A",
+        environment: "Production",
+        is_production: true,
+      }),
+    checkContentModelAccess: async () => Promise.resolve(),
+    listTypes: async () => Promise.resolve([]),
+    listSnippets: async () => Promise.resolve([]),
+    listTaxonomies: async () => Promise.resolve([]),
+    listLanguages: async () => Promise.resolve([]),
+    listVariantsOfType: async () => Promise.resolve([]),
+    isUsedAsComponent: async () => Promise.resolve(false),
+  };
+  return { ...base, ...overrides };
+};
 
 const setup = (
   options: Readonly<{

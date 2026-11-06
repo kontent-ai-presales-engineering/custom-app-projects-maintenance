@@ -9,6 +9,7 @@ import {
   type ProjectView,
   testConnection,
 } from "../api/client.ts";
+import type { DiffTarget } from "./DiffView.tsx";
 
 type LoadState =
   | { readonly kind: "loading" }
@@ -51,9 +52,11 @@ type EnvironmentRowProps = {
   readonly environment: EnvironmentView;
   readonly test: TestState | undefined;
   readonly onTest: (environmentId: string) => void;
+  /** Set for client environments only. */
+  readonly onCompare: (() => void) | null;
 };
 
-const EnvironmentRow = ({ environment, test, onTest }: EnvironmentRowProps) => (
+const EnvironmentRow = ({ environment, test, onTest, onCompare }: EnvironmentRowProps) => (
   <tr>
     <td>
       {environment.name}
@@ -73,6 +76,11 @@ const EnvironmentRow = ({ environment, test, onTest }: EnvironmentRowProps) => (
       >
         {test?.kind === "running" ? "Testing..." : "Test connection"}
       </button>
+      {onCompare === null ? null : (
+        <button type="button" disabled={!environment.key.configured} onClick={onCompare}>
+          Compare with master
+        </button>
+      )}
       {test?.kind === "done" && (
         <output className={`status ${test.result.status === "ok" ? "ok" : "missing"}`}>
           {describeResult(test.result)}
@@ -87,9 +95,10 @@ type ProjectCardProps = {
   readonly project: ProjectView;
   readonly tests: Readonly<Record<string, TestState>>;
   readonly onTest: (environmentId: string) => void;
+  readonly onCompare: (target: DiffTarget) => void;
 };
 
-const ProjectCard = ({ project, tests, onTest }: ProjectCardProps) => {
+const ProjectCard = ({ project, tests, onTest, onCompare }: ProjectCardProps) => {
   const missing = project.environments.filter((e) => !e.key.configured).length;
 
   return (
@@ -123,6 +132,16 @@ const ProjectCard = ({ project, tests, onTest }: ProjectCardProps) => {
                 environment={environment}
                 test={tests[environment.id]}
                 onTest={onTest}
+                onCompare={
+                  project.isMasterProject
+                    ? null
+                    : () =>
+                        onCompare({
+                          environmentId: environment.id,
+                          environmentName: environment.name,
+                          projectName: project.name,
+                        })
+                }
               />
             ))}
           </tbody>
@@ -132,7 +151,12 @@ const ProjectCard = ({ project, tests, onTest }: ProjectCardProps) => {
   );
 };
 
-export const ProjectOverview = ({ client }: { readonly client: ApiClient }) => {
+type ProjectOverviewProps = {
+  readonly client: ApiClient;
+  readonly onCompare: (target: DiffTarget) => void;
+};
+
+export const ProjectOverview = ({ client, onCompare }: ProjectOverviewProps) => {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [tests, setTests] = useState<Readonly<Record<string, TestState>>>({});
 
@@ -198,7 +222,13 @@ export const ProjectOverview = ({ client }: { readonly client: ApiClient }) => {
         to a minute.
       </p>
       {projects.map((project) => (
-        <ProjectCard key={project.id} project={project} tests={tests} onTest={runTest} />
+        <ProjectCard
+          key={project.id}
+          project={project}
+          tests={tests}
+          onTest={runTest}
+          onCompare={onCompare}
+        />
       ))}
     </div>
   );
