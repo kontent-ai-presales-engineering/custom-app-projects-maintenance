@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, createApiClient, getMe, type Me, readAccessSecret } from "./api/client.ts";
+import { type DiffTarget, DiffView } from "./components/DiffView.tsx";
+import { ProjectOverview } from "./components/ProjectOverview.tsx";
 import { useAppContext } from "./contexts/AppContext.tsx";
 import "./App.css";
 
@@ -34,6 +36,7 @@ const App = () => {
     [accessSecret, context.userId, context.userEmail],
   );
   const [state, setState] = useState<State>({ kind: "loading" });
+  const [diffTarget, setDiffTarget] = useState<DiffTarget | null>(null);
 
   useEffect(() => {
     if (client === null) {
@@ -92,19 +95,11 @@ const App = () => {
         </span>
       </header>
       <main className="content">
-        <h2>Master environment</h2>
-        <p>
-          <code>{me.master.environmentId}</code>
-        </p>
-        {me.master.key.configured ? (
-          <p>Management API key configured ({me.master.key.source} variable).</p>
+        {diffTarget === null ? (
+          <ProjectOverview client={client} onCompare={setDiffTarget} />
         ) : (
-          <p className="error">
-            No Management API key. Add the environment variable{" "}
-            <code>{me.master.key.variableName}</code> in Vercel and redeploy.
-          </p>
+          <DiffView client={client} target={diffTarget} onBack={() => setDiffTarget(null)} />
         )}
-        <p>Client projects, diff and sync are added in the next Phase 1 slices.</p>
       </main>
     </div>
   );

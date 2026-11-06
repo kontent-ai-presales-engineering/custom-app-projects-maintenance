@@ -1,5 +1,16 @@
+import type { z } from "zod";
 import type { AccessGuard, Caller } from "./access/accessGuard.js";
-import { HttpError } from "./errors.js";
+import { HttpError, ValidationError } from "./errors.js";
+
+/** Parses a JSON request body against a schema. Invalid input becomes a 400 response. */
+export const readJson = async <T>(request: Request, schema: z.ZodType<T>): Promise<T> => {
+  const body: unknown = await request.json().catch(() => undefined);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new ValidationError("Invalid request body");
+  }
+  return parsed.data;
+};
 
 const baseHeaders = {
   "content-type": "application/json; charset=utf-8",

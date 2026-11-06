@@ -13,10 +13,12 @@
     "biome:check": "biome check .",
     "biome:ci": "biome ci .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:data-ops": "node scripts/check-data-ops.mjs"
   },
   "dependencies": {
     "@kontent-ai/custom-app-sdk": "^2.1.1",
+    "@kontent-ai/data-ops": "2.8.1",
     "@vercel/blob": "^2.8.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

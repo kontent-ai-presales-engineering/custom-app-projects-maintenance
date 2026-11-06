@@ -1,0 +1,2 @@
+patchedDependencies:
+  '@kontent-ai/data-ops@2.8.1': patches/@kontent-ai__data-ops@2.8.1.patch

@@ -74,3 +74,103 @@ export const readAccessSecret = (appConfig: unknown): string | null => {
     ? accessSecret.trim()
     : null;
 };
+
+export type EnvironmentView = Readonly<{
+  id: string;
+  name: string;
+  isMaster: boolean;
+  key: KeyStatus;
+}>;
+
+export type ProjectView = Readonly<{
+  id: string;
+  name: string;
+  isActive: boolean;
+  isMasterProject: boolean;
+  environments: ReadonlyArray<EnvironmentView>;
+}>;
+
+export type ProjectOverviewData = Readonly<{
+  projects: ReadonlyArray<ProjectView>;
+  masterFound: boolean;
+}>;
+
+export type ConnectionResult =
+  | Readonly<{
+      status: "ok";
+      projectName: string;
+      environmentName: string;
+      isProduction: boolean | null;
+      keySource: "environment" | "project";
+    }>
+  | Readonly<{ status: "key_missing"; variableName: string }>
+  | Readonly<{
+      status: "key_rejected" | "no_content_model_access" | "wrong_environment" | "error";
+      variableName: string;
+      message: string;
+    }>;
+
+export const getProjects = async (client: ApiClient) =>
+  await client.fetchJson<ProjectOverviewData>("/api/projects");
+
+export const testConnection = async (client: ApiClient, environmentId: string) =>
+  await client.fetchJson<ConnectionResult>("/api/test-connection", {
+    method: "POST",
+    body: JSON.stringify({ environmentId }),
+  });
+
+export const selectableEntities = [
+  { id: "contentTypes", label: "Content types", default: true },
+  { id: "contentTypeSnippets", label: "Snippets", default: true },
+  { id: "taxonomies", label: "Taxonomies", default: true },
+  { id: "collections", label: "Collections", default: false },
+  { id: "spaces", label: "Spaces", default: false },
+  { id: "languages", label: "Languages", default: false },
+  { id: "workflows", label: "Workflows", default: false },
+] as const;
+
+export type SelectableEntity = (typeof selectableEntities)[number]["id"];
+
+export type Impact = Readonly<{
+  latest: number | null;
+  published: number | null;
+  unknownReasons: ReadonlyArray<string>;
+}>;
+
+export type DiffResult = Readonly<{
+  source: Readonly<{ environmentId: string }>;
+  target: Readonly<{
+    environmentId: string;
+    environmentName: string;
+    projectId: string;
+    projectName: string;
+  }>;
+  entities: ReadonlyArray<SelectableEntity>;
+  generatedAt: string;
+  inSync: boolean;
+  changes: ReadonlyArray<
+    Readonly<{
+      entity: string;
+      codename: string;
+      kind: "added" | "updated" | "deleted";
+      operations: ReadonlyArray<string>;
+    }>
+  >;
+  destructive: ReadonlyArray<
+    Readonly<{ id: string; entity: string; owner: string; description: string; impact: Impact }>
+  >;
+  blocks: ReadonlyArray<Readonly<{ entity: string; owner: string; reason: string }>>;
+  warnings: ReadonlyArray<Readonly<{ entity: string; owner: string; message: string }>>;
+  keptClientItems: ReadonlyArray<string>;
+  reportHtml: string;
+}>;
+
+export const runDiff = async (
+  client: ApiClient,
+  environmentId: string,
+  entities: ReadonlyArray<SelectableEntity>,
+) =>
+  await client.fetchJson<DiffResult>("/api/diff", {
+    method: "POST",
+    body: JSON.stringify({ environmentId, entities }),
+  });

@@ -4,7 +4,7 @@ A Kontent.ai custom app that keeps the content model of client projects in sync 
 
 Unity Advisory is moving from one Kontent.ai project with a collection per client to one project per client. Content models cannot be shared between projects. This app runs inside the **master** project, lists every project in the Kontent.ai subscription, and copies content model changes **one way**: from the master to the client projects you choose. It never changes the master.
 
-> **Status: in development.** The access check and the backend foundation are built. Project overview, diff, backup and sync are planned. See [Feature status](#feature-status).
+> **Status: in development.** The access check, the project overview, Test connection and the diff with impact counts are built. Backup and sync are planned. See [Feature status](#feature-status).
 
 ## Contents
 
@@ -17,6 +17,7 @@ Unity Advisory is moving from one Kontent.ai project with a collection per clien
 - [How access is checked](#how-access-is-checked)
 - [Safety rules](#safety-rules)
 - [Client-only additions: the reserved prefix](#client-only-additions-the-reserved-prefix)
+- [Comparing a client with the master](#comparing-a-client-with-the-master)
 - [Destructive changes](#destructive-changes)
 - [Limitations](#limitations)
 - [Security](#security)
@@ -60,10 +61,9 @@ All Kontent.ai API calls run in the backend. The browser never sees an API key.
 | Feature | Status |
 |---|---|
 | Access check: access secret, plus an active master-environment user with an allowed role | Built, not yet tested on Vercel |
-| Master key check: the app shows whether the master's Management API key is configured | Built, not yet tested on Vercel |
-| Project overview: all subscription projects and environments, with key status per environment | Planned (next) |
-| Test connection: check that a configured key works | Planned (next) |
-| Diff with content impact counts | Planned |
+| Project overview: all subscription projects and environments, with key status per environment and the variable to add for a missing key | Built, not yet tested on Vercel |
+| Test connection: read-only check that a key is accepted for its environment and can read the content model | Built, not yet tested on Vercel |
+| Diff: compare the master with one client environment, with blocks, destructive changes, impact counts and the full data-ops report | Built, not yet tested on Vercel |
 | Backup of the client model before every sync | Planned |
 | Sync to one client environment, with typed confirmation and a re-check just before applying | Planned |
 | Audit log of backups and syncs | Storage built, entries added with backup and sync |
@@ -146,8 +146,10 @@ Keep the output: it goes into Vercel and into the custom app settings.
 
 Open **Custom apps** > **Content Model Sync** in the master environment. The app checks your access and shows:
 
-- your name and role, and
-- whether the master's Management API key is configured. If it is missing, it shows the exact variable name to add in Vercel.
+- your name and role in the header, and
+- every project in the subscription, master project first, with each environment's key status. For a missing key it shows the exact variable name to add in Vercel.
+
+Click **Test connection** on the master environment to check its key. A successful test shows the project and environment names. Otherwise it says whether the key was rejected (expired, revoked or limited to other environments) or cannot read the content model (missing the Manage content model permission).
 
 If you see an error instead:
 
@@ -170,8 +172,10 @@ If you see an error instead:
    - per environment: `KONTENT_MAPI_KEY_<environment ID with "-" replaced by "_">`, or
    - once for the whole project: `KONTENT_MAPI_KEY_<project ID with "-" replaced by "_">`. A per-environment variable wins if both exist.
 
-   The project overview (planned) will show the exact variable name for every environment that has no key.
-4. **Redeploy** the latest deployment in Vercel. Vercel only applies new environment variables to new deployments. No code change is needed.
+   The project overview shows the exact variable name for every environment that has no key.
+4. **Optional: Delivery API key.** If secure access is enabled for a client environment, add a Delivery API key as `KONTENT_DELIVERY_KEY_<environment ID with "-" replaced by "_">`. Without it, published counts for that environment show as impact unknown.
+5. **Redeploy** the latest deployment in Vercel. Vercel only applies new environment variables to new deployments. No code change is needed.
+6. **Check the key**: in the app, click **Refresh** (the project list is cached for up to a minute), then **Test connection** on the new environment.
 
 ## Environment variables
 
@@ -186,6 +190,7 @@ All variables are read by the backend only. The frontend has none.
 | `APP_ACCESS_SECRET` | Yes | At least 32 characters. Same value as `accessSecret` in the custom app parameters. |
 | `ALLOWED_ROLES` | No | Comma-separated role codenames or role IDs in the master environment. Default: `project-manager` |
 | `CLIENT_PREFIX` | No | Reserved codename prefix for client-only additions. Default: `client_` |
+| `KONTENT_DELIVERY_KEY_<id>` | No | Delivery API key for an environment with secure access, used for published counts. `<id>` is the environment ID with hyphens replaced by underscores. |
 | `BLOB_READ_WRITE_TOKEN` | Yes | Added by Vercel when you connect the Blob store |
 
 If a required variable is missing or invalid, API calls fail and the Vercel function log names the variable (never its value). [.env.example](.env.example) lists the same variables.
@@ -232,20 +237,33 @@ Rules:
 - **Sync never removes prefixed items.** Removals of prefixed items are dropped from the diff, and the sync is blocked if one remains.
 - **Content groups:** a sync that would remove a content group that still has elements is blocked. Move or remove those elements in the master first.
 
+## Comparing a client with the master
+
+In the project overview, click **Compare with master** on a client environment. Choose the entities to compare (content types, snippets and taxonomies by default; collections, spaces, languages and workflows are opt-in) and click **Compare**. Comparing is read-only.
+
+The result shows:
+
+- **Blocked:** problems that must be fixed before this client can be synced, with the reason.
+- **Destructive changes:** changes that remove content in the client, with the number of affected language variants.
+- **Warnings**, **All changes** (with the individual operations), and the **client items kept** because they use the reserved prefix.
+- **Show full data-ops report:** the detailed data-ops HTML report of the same (filtered) diff.
+
 ## Destructive changes
 
 | Change in the master | What happens |
 |---|---|
-| Element removed that holds content in the client | Shows the number of affected items. Needs confirmation. |
-| Content type removed while items use it | Blocked |
-| Element type changed | Blocked |
-| Snippet or taxonomy group removed | Needs confirmation |
-| Taxonomy term or multiple choice option removed | Shows the number of affected items. Needs confirmation. |
-| Language deactivated, or default language codename changed | Shows items per language. Needs confirmation. |
-| Workflow step removed while items are in it | Blocked until the behaviour has been tested. Allowed when the step is empty. |
+| Element removed that holds content in the client | Counted. Needs confirmation. |
+| Multiple choice option removed | Counted. Needs confirmation. |
+| Taxonomy term removed (with its child terms) | Counted across all types and snippets that use the group. Needs confirmation. |
+| Taxonomy group removed | Counted. Needs confirmation. |
+| Content type removed | Counted. data-ops refuses the sync while items use the type. |
+| Snippet removed, or removed from a type | Impact unknown. Needs confirmation. |
+| Collection, space or language removed, or a language codename changed | Impact unknown. Needs confirmation. |
+| Element type changed | Refused by data-ops validation at sync time |
+| Workflow or workflow step removed | Blocked until the behaviour has been tested on a sandbox |
 | Workflows synced | Warning: role limits on workflows are lost |
 
-Counts include both the latest and the published version of each item. If a count cannot be determined, the app shows **impact unknown** and requires confirmation; it never shows 0 for an unknown count.
+Counts are made for the **latest** version (Management API) and the **published** version (Delivery API, per active language). A count is **impact unknown**, never 0, when it cannot be determined, for example when the type is also used as a component in rich text, or when the Delivery API refuses because secure access is enabled and no Delivery API key is set.
 
 ## Limitations
 
@@ -279,7 +297,10 @@ These will be tested on a real deployment, and this README updated:
 - That the user ID from the custom app context is the ID the Subscription API uses. The email is cross-checked as well. If they differ, every user is refused until the lookup switches to email.
 - Subscription admins without a role in the master environment are refused. It is not yet confirmed how they appear in the Subscription API.
 - What the Management API does with items in a removed workflow step (blocked until tested).
-- Vercel function time limits on the plan in use, for long syncs.
+- Vercel function time limits on the plan in use. The diff function is set to 300 seconds; long syncs may need more.
+- That listing content types requires the Manage content model permission (Test connection relies on it).
+- That the Delivery API items feed honours the `elements` projection and the `system.language` filter as used for published counts.
+- The diff and impact counts against real projects. They are tested with mocked APIs and the real data-ops report renderer only.
 
 ## Development
 
@@ -297,18 +318,32 @@ Kontent.ai only loads custom apps over HTTPS. To try a local version inside Kont
 | `pnpm test` | Unit tests (Vitest), with Kontent.ai APIs and Vercel Blob mocked |
 | `pnpm lint` | ESLint |
 | `pnpm biome:check` | Biome lint and format check |
+| `pnpm check:data-ops` | Fails if data-ops is not exactly the validated version or the patch is not applied |
 
-CI runs Biome, ESLint, the tests and the build.
+CI runs Biome, ESLint, the data-ops check, the tests and the build.
 
 Project layout:
 
 ```
 src/        React custom app
 api/        Vercel Functions, one file per endpoint
-server/     Backend logic: access check, config, Kontent.ai clients, keys, storage, audit log
+server/     Backend logic: access check, config, Kontent.ai clients, keys, diff, storage, audit log
+patches/    pnpm patch for @kontent-ai/data-ops
+scripts/    data-ops version check
 ```
 
-The diff and sync will use [`@kontent-ai/data-ops`](https://github.com/kontent-ai/data-ops), which already syncs content models between environments by ID and key. Environment IDs are unique across projects, so syncing from the master project to a client project works the same way.
+### data-ops
+
+The diff (and later the sync) uses [`@kontent-ai/data-ops`](https://github.com/kontent-ai/data-ops), which compares and syncs content models between environments by ID and key. Environment IDs are unique across projects, so master-to-client works the same way.
+
+The app needs the structured diff, not only the HTML report, to keep client items and count impact. data-ops has this internally but does not export it, so:
+
+- data-ops is pinned to exactly **2.8.1**.
+- `patches/@kontent-ai__data-ops@2.8.1.patch` adds `exports` entries for the internal diff, sync, validation and report modules. It changes no code.
+- `server/sync/dataOps.ts` is the only file that imports data-ops.
+- Contract tests (`server/sync/dataOps.contract.test.ts`) check the entry points and the report renderer, and `pnpm check:data-ops` fails the build if the version changes.
+
+To upgrade data-ops: update the exact version, regenerate the patch with `pnpm patch`, run the tests, compare against a sandbox client, then update `VALIDATED_VERSION` in `scripts/check-data-ops.mjs`.
 
 Built on the [Kontent.ai custom app starter for React](https://github.com/kontent-ai/custom-app-starter-react) and the [Custom app SDK](https://github.com/kontent-ai/custom-app-sdk-js).
 

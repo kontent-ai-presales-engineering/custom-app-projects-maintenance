@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { AccessDeniedError, type AccessGuard, type Caller } from "./access/accessGuard.js";
 import { ValidationError } from "./errors.js";
-import { json, withAccess } from "./http.js";
+import { json, readJson, withAccess } from "./http.js";
 
 const caller: Caller = {
   userId: "u1",
@@ -88,5 +89,22 @@ describe("withAccess", () => {
     )(request());
 
     expect(response.status).toBe(500);
+  });
+});
+
+describe("readJson", () => {
+  const schema = z.object({ environmentId: z.string() });
+  const post = (body: string) => new Request("https://app.example/api/x", { method: "POST", body });
+
+  it("returns parsed data", async () => {
+    expect(await readJson(post('{"environmentId":"e1"}'), schema)).toEqual({ environmentId: "e1" });
+  });
+
+  it.each([
+    "not json",
+    "{}",
+    '{"environmentId":1}',
+  ])("rejects %s with a validation error", async (body) => {
+    await expect(readJson(post(body), schema)).rejects.toBeInstanceOf(ValidationError);
   });
 });
