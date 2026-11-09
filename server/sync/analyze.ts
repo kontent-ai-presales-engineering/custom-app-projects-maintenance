@@ -157,16 +157,17 @@ export const analyzeDiff = (
       blocks.push({
         entity: "Content type",
         owner: codename,
-        reason: `Deleting this type would remove client elements (${clientElements.map((e) => e.codename).join(", ")}).`,
+        reason: `Deleting this type would remove project-specific elements (${clientElements.map((e) => e.codename).join(", ")}).`,
       });
     }
     addDestructive({
       entity: "Content type",
       owner: codename,
-      description: `Content type "${codename}" is deleted from the client.`,
+      description: `Content type "${codename}" is deleted from the sub-project.`,
       count:
         type === undefined ? null : [{ typeIds: [type.id], element: null, match: { kind: "any" } }],
-      unknownReason: type === undefined ? "The type was not found in the client model." : null,
+      unknownReason:
+        type === undefined ? "The type was not found in the sub-project's model." : null,
     });
   }
   for (const [codename, ops] of model.contentTypes.updated) {
@@ -194,7 +195,7 @@ export const analyzeDiff = (
       blocks.push({
         entity: "Content type",
         owner: codename,
-        reason: `The master adds content groups, but the client has elements outside any group (${ungroupedClient.map((e) => e.codename).join(", ")}). Put them in a group in the client first.`,
+        reason: `The master adds content groups, but the sub-project has elements outside any group (${ungroupedClient.map((e) => e.codename).join(", ")}). Put them in a group in the sub-project first.`,
       });
     }
   }
@@ -212,13 +213,13 @@ export const analyzeDiff = (
       blocks.push({
         entity: "Snippet",
         owner: codename,
-        reason: `Deleting this snippet would remove client elements (${clientElements.map((e) => e.codename).join(", ")}).`,
+        reason: `Deleting this snippet would remove project-specific elements (${clientElements.map((e) => e.codename).join(", ")}).`,
       });
     }
     addDestructive({
       entity: "Snippet",
       owner: codename,
-      description: `Snippet "${codename}" is deleted from the client.`,
+      description: `Snippet "${codename}" is deleted from the sub-project.`,
       count: null,
       unknownReason: "Content in deleted snippets is not counted yet.",
     });
@@ -254,13 +255,13 @@ export const analyzeDiff = (
       blocks.push({
         entity: "Taxonomy group",
         owner: codename,
-        reason: `Deleting this group would remove client terms (${clientTerms.map((t) => t.codename).join(", ")}).`,
+        reason: `Deleting this group would remove project-specific terms (${clientTerms.map((t) => t.codename).join(", ")}).`,
       });
     }
     addDestructive({
       entity: "Taxonomy group",
       owner: codename,
-      description: `Taxonomy group "${codename}" is deleted from the client.`,
+      description: `Taxonomy group "${codename}" is deleted from the sub-project.`,
       count:
         group === undefined
           ? null
@@ -269,7 +270,8 @@ export const analyzeDiff = (
               element: { id: usage.element.id, codename: usage.element.codename ?? "" },
               match: { kind: "hasValue" as const },
             })),
-      unknownReason: group === undefined ? "The group was not found in the client model." : null,
+      unknownReason:
+        group === undefined ? "The group was not found in the sub-project's model." : null,
     });
   }
   for (const [codename, ops] of model.taxonomyGroups.updated) {
@@ -292,7 +294,7 @@ export const analyzeDiff = (
         blocks.push({
           entity: "Taxonomy group",
           owner: codename,
-          reason: `Removing term "${path.at(-1)}" would also remove client terms (${clientTerms.map((t) => t.codename).join(", ")}).`,
+          reason: `Removing term "${path.at(-1)}" would also remove project-specific terms (${clientTerms.map((t) => t.codename).join(", ")}).`,
         });
       }
       addDestructive({
@@ -313,7 +315,7 @@ export const analyzeDiff = (
               })),
         unknownReason:
           group === undefined || term === undefined
-            ? "The term was not found in the client model."
+            ? "The term was not found in the sub-project's model."
             : null,
       });
     }
@@ -357,7 +359,7 @@ export const analyzeDiff = (
     addDestructive({
       entity: "Space",
       owner: codename,
-      description: `Space "${codename}" is deleted from the client.`,
+      description: `Space "${codename}" is deleted from the sub-project.`,
       count: null,
       unknownReason: "Items per space are not counted yet.",
     });
@@ -375,7 +377,7 @@ export const analyzeDiff = (
     addDestructive({
       entity: "Language",
       owner: codename,
-      description: `Language "${codename}" is deactivated and renamed in the client.`,
+      description: `Language "${codename}" is deactivated and renamed in the sub-project.`,
       count: null,
       unknownReason: "Variants per language are not counted yet.",
     });
@@ -407,7 +409,7 @@ export const analyzeDiff = (
     warnings.push({
       entity: "Workflow",
       owner: "all",
-      message: "Role limitations on workflow steps are not synced and are lost in the client.",
+      message: "Role limitations on workflow steps are not synced and are lost in the sub-project.",
     });
   }
   for (const added of model.workflows.added) {
@@ -471,7 +473,7 @@ export const analyzeDiff = (
           blocks.push({
             entity,
             owner,
-            reason: `Content group "${path[0]}" is removed but still contains client elements (${clientElements.map((e) => e.codename).join(", ")}). Move or remove those elements first.`,
+            reason: `Content group "${path[0]}" is removed but still contains project-specific elements (${clientElements.map((e) => e.codename).join(", ")}). Move or remove those elements first.`,
           });
         }
         continue;
@@ -501,7 +503,7 @@ export const analyzeDiff = (
           blocks.push({
             entity,
             owner,
-            reason: `Removing element "${path[0]}" would also remove client options (${clientOptions.map((o) => o.codename).join(", ")}).`,
+            reason: `Removing element "${path[0]}" would also remove project-specific options (${clientOptions.map((o) => o.codename).join(", ")}).`,
           });
         }
         addDestructive({
@@ -518,7 +520,7 @@ export const analyzeDiff = (
                 },
               ],
           unknownReason: unknown
-            ? "The element or the types using it were not found in the client model."
+            ? "The element or the types using it were not found in the sub-project's model."
             : null,
         });
       } else if (op.path.includes("/options/")) {
@@ -543,7 +545,7 @@ export const analyzeDiff = (
                 ],
           unknownReason:
             unknown || option === undefined
-              ? "The option was not found in the client model."
+              ? "The option was not found in the sub-project's model."
               : null,
         });
       }

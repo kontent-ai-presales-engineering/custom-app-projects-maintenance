@@ -246,7 +246,7 @@ export const RolloutView = ({ client, targets, onBack }: RolloutViewProps) => {
       <table>
         <thead>
           <tr>
-            <th>Client</th>
+            <th>Sub-project</th>
             <th>Environment</th>
             <th>Stage</th>
             <th>Plan</th>

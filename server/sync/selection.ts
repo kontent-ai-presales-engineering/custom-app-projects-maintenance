@@ -291,7 +291,7 @@ export const excludeItems = (model: DiffModel, exclusions: Exclusions): Exclusio
         conflicts.push({
           entity: item.entity,
           codename: item.codename,
-          reason: `${owner} uses ${entityLabel[needed.entity]} "${needed.codename}", which is new in the master but excluded for this client`,
+          reason: `${owner} uses ${entityLabel[needed.entity]} "${needed.codename}", which is new in the master but excluded for this sub-project`,
         });
       }
     }

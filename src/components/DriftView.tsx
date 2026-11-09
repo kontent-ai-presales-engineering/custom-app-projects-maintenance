@@ -150,7 +150,7 @@ export const DriftView = ({ client, onCompare, onRollout }: DriftViewProps) => {
   return (
     <div>
       <div className="toolbar">
-        <h2>Drift across clients</h2>
+        <h2>Drift across sub-projects</h2>
         <button
           type="button"
           disabled={selected.size === 0 || running.size > 0}
@@ -178,16 +178,16 @@ export const DriftView = ({ client, onCompare, onRollout }: DriftViewProps) => {
         </button>
       </div>
       <p className="muted">
-        Compares each client environment with the master for content types, snippets and taxonomies,
-        respecting exclusions and client items. Read-only. Results are stored, so everyone sees the
-        latest check.
+        Compares each sub-project environment with the master for content types, snippets and
+        taxonomies, respecting exclusions and project-specific items. Read-only. Results are stored,
+        so everyone sees the latest check.
       </p>
 
       <table>
         <thead>
           <tr>
             <th />
-            <th>Client</th>
+            <th>Sub-project</th>
             <th>Environment</th>
             <th>Synced from</th>
             <th>Status</th>

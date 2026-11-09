@@ -99,7 +99,7 @@ export const createBackupService = (deps: BackupServiceDeps): BackupService => {
         throw new HttpError(
           403,
           "target_is_master",
-          "Backups are made of client environments only. The master is never changed by this app.",
+          "Backups are made of sub-project environments only. The master is never changed by this app.",
         );
       }
       const key = resolveManagementKey(deps.env(), {

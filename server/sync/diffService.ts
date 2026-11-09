@@ -284,7 +284,7 @@ export const createDiffService = (deps: DiffServiceDeps): DiffService => {
       throw new HttpError(
         502,
         "target_model_failed",
-        "The client's content model could not be read. Check its key with Test connection.",
+        "The sub-project's content model could not be read. Check its key with Test connection.",
       );
     }
 

@@ -66,7 +66,7 @@ export const ReleasesView = ({ client }: { readonly client: ApiClient }) => {
       <p className="muted">
         A release is a frozen copy of the master's content model with a version and notes. Compare,
         sync and rollouts can use a release instead of the live master, so edits made in the master
-        afterwards do not reach clients until you release them.
+        afterwards do not reach sub-projects until you release them.
       </p>
 
       <section className="panel">
@@ -117,7 +117,7 @@ export const ReleasesView = ({ client }: { readonly client: ApiClient }) => {
               <th>Created</th>
               <th>Notes</th>
               <th>Contents</th>
-              <th>Clients on it</th>
+              <th>Environments on it</th>
             </tr>
           </thead>
           <tbody>

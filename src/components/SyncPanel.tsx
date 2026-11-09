@@ -75,7 +75,7 @@ export const SyncPanel = ({ client, result, onFinished }: SyncPanelProps) => {
           {state.outcome.operations} changes were applied to {state.outcome.projectName} /{" "}
           {state.outcome.environmentName}. A backup was made first ({state.outcome.backupId}).
         </p>
-        <p className="muted">Compare again to confirm the client is now in sync.</p>
+        <p className="muted">Compare again to confirm the sub-project is now in sync.</p>
       </section>
     );
   }
@@ -91,7 +91,7 @@ export const SyncPanel = ({ client, result, onFinished }: SyncPanelProps) => {
       </h3>
       <ol className="muted steps">
         <li>The diff is recomputed and must be identical to the one shown above.</li>
-        <li>The client's current content model is backed up first.</li>
+        <li>The sub-project's current content model is backed up first.</li>
         <li>data-ops validates the changes, then applies them to this environment only.</li>
       </ol>
 
@@ -104,7 +104,7 @@ export const SyncPanel = ({ client, result, onFinished }: SyncPanelProps) => {
             onChange={(event) => setDestructiveConfirmed(event.target.checked)}
           />
           I understand that {destructive} destructive {destructive === 1 ? "change" : "changes"}{" "}
-          will remove content in the client
+          will remove content in the sub-project
           {unknown > 0 ? `, and that the impact of ${unknown} of them is unknown` : ""}.
         </label>
       ) : null}
@@ -137,7 +137,9 @@ export const SyncPanel = ({ client, result, onFinished }: SyncPanelProps) => {
       </div>
 
       {state.kind === "done" && state.outcome.status === "nothing_to_sync" ? (
-        <output className="status ok">Nothing to sync: the client is already up to date.</output>
+        <output className="status ok">
+          Nothing to sync: the sub-project is already up to date.
+        </output>
       ) : null}
       {state.kind === "done" && state.outcome.status === "validation_failed" ? (
         <div className="error" role="alert">

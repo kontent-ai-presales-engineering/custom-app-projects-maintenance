@@ -210,7 +210,7 @@ describe("excludeItems", () => {
         entity: "contentTypes",
         codename: "event",
         reason:
-          'content type "event" uses snippet "seo", which is new in the master but excluded for this client',
+          'content type "event" uses snippet "seo", which is new in the master but excluded for this sub-project',
       },
     ]);
   });

@@ -68,7 +68,7 @@ type ResultProps = {
   /** Chosen items (entity:codename) when choosing items, otherwise null. */
   readonly chosen: ReadonlySet<string> | null;
   readonly onToggle: (key: string) => void;
-  /** Set when changes can be excluded for this client (syncs from the master). */
+  /** Set when changes can be excluded for this sub-project (syncs from the master). */
   readonly onExclude: ((entity: SelectableEntity, codename: string) => void) | null;
 };
 
@@ -107,8 +107,8 @@ const Result = ({ result, chosen, onToggle, onExclude }: ResultProps) => {
         <section className="panel destructive">
           <h3>Destructive changes ({result.destructive.length})</h3>
           <p>
-            Content in the client is lost or changed. Counts are language variants. "Impact unknown"
-            always needs confirmation.
+            Content in the sub-project is lost or changed. Counts are language variants. "Impact
+            unknown" always needs confirmation.
           </p>
           <table>
             <thead>
@@ -240,9 +240,11 @@ const Result = ({ result, chosen, onToggle, onExclude }: ResultProps) => {
 
       {result.excludedItems.length > 0 ? (
         <details className="panel">
-          <summary>Excluded for this client, kept as is ({result.excludedItems.length})</summary>
+          <summary>
+            Excluded for this sub-project, kept as is ({result.excludedItems.length})
+          </summary>
           <p className="muted">
-            The master has changes to these items, but this client excludes them. They are not
+            The master has changes to these items, but this sub-project excludes them. They are not
             synced.
           </p>
           <ul>
@@ -257,9 +259,10 @@ const Result = ({ result, chosen, onToggle, onExclude }: ResultProps) => {
 
       {result.keptClientItems.length > 0 ? (
         <details className="panel">
-          <summary>Client items kept ({result.keptClientItems.length})</summary>
+          <summary>Project-specific items kept ({result.keptClientItems.length})</summary>
           <p className="muted">
-            These client-only items are not in the master. They are never removed by a sync.
+            These project-specific items (reserved prefix) are not in the master. They are never
+            removed by a sync.
           </p>
           <ul>
             {result.keptClientItems.map((item) => (
@@ -462,11 +465,11 @@ export const DiffView = ({ client, target, onBack }: DiffViewProps) => {
       {restoreFrom === null ? null : (
         <div className="panel restore">
           <p>
-            Comparing the client with its backup from{" "}
+            Comparing the sub-project with its backup from{" "}
             <strong>{new Date(restoreFrom.createdAt).toLocaleString()}</strong> (made by{" "}
             {restoreFrom.createdBy.email}). Restoring brings the chosen parts of the content model
-            back to that state. Client items with the reserved prefix added since then are kept.
-            Content is not restored.
+            back to that state. Project-specific items with the reserved prefix added since then are
+            kept. Content is not restored.
           </p>
           <button type="button" onClick={() => chooseRestore(null)}>
             Cancel restore, compare with master

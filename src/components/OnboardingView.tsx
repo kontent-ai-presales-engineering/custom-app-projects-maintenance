@@ -127,14 +127,14 @@ export const OnboardingView = ({ client, project, onBack, onCompare }: Onboardin
         </button>
       </div>
       <p className="muted">
-        Kontent.ai has no API to create projects. Create the client project in Kontent.ai first; it
+        Kontent.ai has no API to create projects. Create the sub-project in Kontent.ai first; it
         then appears here. These steps connect it and give it the master's content model.
       </p>
 
       <section className="panel">
         <h3>1. Add a Management API key</h3>
         <p>
-          Create a Management API key in the client project, then add it in Vercel as{" "}
+          Create a Management API key in the sub-project, then add it in Vercel as{" "}
           <code className="selectable">{projectKeyVariable(project.id)}</code> and redeploy. A
           project-level key covers all environments of the project, including ones you clone later,
           if the key itself is not limited to specific environments.

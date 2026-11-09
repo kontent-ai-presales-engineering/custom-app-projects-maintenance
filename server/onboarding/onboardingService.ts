@@ -96,7 +96,7 @@ export const createOnboardingService = (deps: OnboardingServiceDeps): Onboarding
       (p) => p.id.toLowerCase() === projectId,
     );
     if (project === undefined || project.isMasterProject) {
-      throw new HttpError(404, "unknown_project", "This client project is not in the subscription");
+      throw new HttpError(404, "unknown_project", "This sub-project is not in the subscription");
     }
     // A new environment is not in the cached project list yet, so only the project key or
     // an environment key set in advance can be used.

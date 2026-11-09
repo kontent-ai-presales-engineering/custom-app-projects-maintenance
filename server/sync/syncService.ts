@@ -119,7 +119,7 @@ export const createSyncService = (deps: SyncServiceDeps): SyncService => {
         throw new HttpError(
           409,
           "diff_changed",
-          "The master or the client changed since you compared. Compare again and confirm the new diff.",
+          "The master or the sub-project changed since you compared. Compare again and confirm the new diff.",
         );
       }
 
@@ -199,7 +199,7 @@ export const createSyncService = (deps: SyncServiceDeps): SyncService => {
           throw new HttpError(
             502,
             "sync_failed",
-            `The sync stopped partway. Changes are applied one by one, so some may already be in the client. Compare again to see what is left. The backup made before the sync is ${backupId}.`,
+            `The sync stopped partway. Changes are applied one by one, so some may already be in the sub-project. Compare again to see what is left. The backup made before the sync is ${backupId}.`,
           );
         }
 
@@ -222,7 +222,7 @@ export const createSyncService = (deps: SyncServiceDeps): SyncService => {
                 ? { releaseId: prepared.source.releaseId, version: prepared.source.version }
                 : null,
             )
-            .catch((error: unknown) => log("Recording the client release failed", error));
+            .catch((error: unknown) => log("Recording the sub-project release failed", error));
         }
         return {
           status: "succeeded",

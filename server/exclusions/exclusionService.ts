@@ -78,7 +78,7 @@ export const createExclusionService = (deps: ExclusionServiceDeps): ExclusionSer
         throw new HttpError(
           403,
           "target_is_master",
-          "Exclusions are for client projects. The master is never synced.",
+          "Exclusions are for sub-projects. The master is never synced.",
         );
       }
 
