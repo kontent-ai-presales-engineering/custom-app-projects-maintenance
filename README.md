@@ -9,7 +9,6 @@ It is meant for organisations that run one Kontent.ai project per client, brand,
 ## Contents
 
 - [What the app does](#what-the-app-does)
-- [Feature status](#feature-status)
 - [Before you start](#before-you-start)
 - [Setup](#setup)
 - [Adding a client project](#adding-a-client-project)
@@ -65,26 +64,6 @@ Vercel Functions (/api/*)
 
 All Kontent.ai API calls run in the backend. The browser never sees an API key.
 
-## Feature status
-
-| Feature | Status |
-|---|---|
-| Access check: access secret, plus an active master-environment user with an allowed role | Built, not yet tested on Vercel |
-| Project overview: all subscription projects and environments, with key status per environment, the variable to add for a missing key, users per project, and content item and content type counts per environment | Built, not yet tested on Vercel |
-| Test connection: read-only check that a key is accepted for its environment and can read the content model | Built, not yet tested on Vercel |
-| Diff: compare the master with one client environment, with blocks, destructive changes, impact counts and the full data-ops report | Built, not yet tested on Vercel |
-| Backup of a client's content model: on demand now, and automatically before every sync once sync is built. Download as JSON. | Built, not yet tested on Vercel |
-| Sync to one client environment: typed confirmation, extra confirmation for destructive changes, re-check of the diff just before applying, automatic backup, data-ops validation, one sync per environment at a time | Built, not yet tested on Vercel |
-| Selective sync: choose individual content types, snippets, taxonomies and other items from a diff; items they depend on are added automatically and shown | Built, not yet tested on Vercel |
-| Drift dashboard (**Drift** in the header): the latest comparison of every client environment with the master, with Check and Check all | Built, not yet tested on Vercel |
-| Onboarding of a new client project: checklist for the key, Test connection, an initial sync of the full model, and cloning further environments | Built, not yet tested on Vercel |
-| Master releases (**Releases** in the header): frozen, versioned copies of the master's content model with changelog notes; compare, sync and roll out a release instead of the live master | Built, not yet tested on Vercel |
-| Batch rollout from the Drift tab: plan several client environments, sync non-production first, then production after an explicit step | Built, not yet tested on Vercel |
-| Exclusions per client: items a client project keeps out of syncs from the master | Built, not yet tested on Vercel |
-| Restore a client's content model from one of its backups, with the same comparison, confirmations and safeguards as a sync | Built, not yet tested on Vercel |
-| Audit log of backups, syncs and restores, with a screen (**Audit log** in the header) | Built, not yet tested on Vercel |
-
-All planned phases are built.
 
 ## Before you start
 
