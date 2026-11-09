@@ -6,12 +6,11 @@ Kontent.ai cannot share a content model between projects. When you run several p
 
 In this README, a **sub-project** is any other project in the same subscription that should follow the master's content model.
 
-> **Status: in development.** All features below are built, but none of it has been tested on a real deployment yet. See [Feature status](#feature-status) and [Not yet verified](#not-yet-verified).
+> **Status: in development.** All features below are built, but none of it has been tested on a real deployment yet. See [Not yet verified](#not-yet-verified).
 
 ## Contents
 
 - [What the app does](#what-the-app-does)
-- [Feature status](#feature-status)
 - [Before you start](#before-you-start)
 - [Setup on Vercel](#setup-on-vercel)
 - [Adding a sub-project](#adding-a-sub-project)
@@ -67,25 +66,6 @@ Backend functions (/api/*)
 ```
 
 All Kontent.ai API calls run in the backend. The browser never sees an API key.
-
-## Feature status
-
-| Feature | Status |
-|---|---|
-| Access check: access secret, plus an active master-environment user with an allowed role | Built, not yet tested on a deployment |
-| Project overview: all projects and environments, key status, users per project, content item and content type counts per environment | Built, not yet tested on a deployment |
-| Test connection: read-only check that a key is accepted for its environment and can read the content model | Built, not yet tested on a deployment |
-| Diff with impact counts, blocks and the full data-ops report | Built, not yet tested on a deployment |
-| Backups of a sub-project's content model, with download | Built, not yet tested on a deployment |
-| Sync to one environment, with typed confirmation, re-check of the diff, automatic backup and validation | Built, not yet tested on a deployment |
-| Restore from a backup | Built, not yet tested on a deployment |
-| Selective sync of individual items, with automatic dependencies | Built, not yet tested on a deployment |
-| Exclusions per sub-project | Built, not yet tested on a deployment |
-| Audit log screen | Built, not yet tested on a deployment |
-| Drift dashboard across all sub-projects | Built, not yet tested on a deployment |
-| Batch rollout: non-production first, then production | Built, not yet tested on a deployment |
-| Master releases: frozen, versioned copies of the master model with changelog notes | Built, not yet tested on a deployment |
-| Onboarding of a new sub-project, including cloning environments | Built, not yet tested on a deployment |
 
 ## Before you start
 
